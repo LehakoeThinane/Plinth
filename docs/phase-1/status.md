@@ -87,17 +87,41 @@ role forgery, tenant isolation, ended/suspended membership, domain verification,
 branding injection and storefront text escaping. Existing databases need
 migration 005 after 004; fresh Compose volumes and CI apply it automatically.
 
+## Fourth implemented slice: managed JWT adapter, browser sessions and shells
+
+The configurable managed JWT adapter verifies signature, issuer, dedicated API
+audience, token type and required expiry/issued-at/subject claims before resolving
+global users. Migration 006 adds administratively enabled issuers and persistent
+session storage. A separate authentication role has function-only permissions,
+while the application role cannot provision accounts or read session credentials.
+Concurrent provisioning of one issuer/subject creates only one global account.
+
+Browser sessions use host-only Secure/HttpOnly cookies, stored credential hashes,
+bounded expiry, exact trusted hub origins, CSRF checks and persistent logout.
+The application composition can wire these through `createManagedApplication`.
+Authenticated join/member/admin shells provide optional consent capture,
+per-purpose grant/revoke, safe branding edits and sign out. They recheck active
+membership/role from the database and cannot cross a session's hub boundary.
+
+Validation: `npm run verify` passed 90 checks; full PostgreSQL 17 passed 52 checks.
+Coverage includes real signed test tokens through account resolution and the HTTP
+access path, invalid claims/signatures, constrained authentication privileges,
+concurrent account provisioning, cookie/host isolation, CSRF, shells and logout.
+Provider sign-in, HTTPS transport and browser/device UAT are not yet verified.
+See [authentication setup](authentication.md) for configuration and remaining work.
+
 ## Remaining Phase 1 scope
 
-Managed authentication selection/configuration and subject-linking workflow;
-organisation provisioning/admin workflows; domain ownership verification,
-custom-host routing and host-scoped sessions; branding asset upload/serving;
-admin/member screens, onboarding UI and consent capture UI. Purpose-notice publication currently requires an administrative migration
+Managed provider selection/configuration and hosted authorization-code/PKCE
+sign-in/callback integration; explicit account-linking workflow; organisation
+provisioning/admin workflows; domain ownership verification, TLS/custom-host
+routing and browser UAT; branding asset upload/serving; hub-creation UI.
+Purpose-notice publication currently requires an administrative migration
 or controlled database operation; its provider-admin interface is not built.
 
 The existing identity/membership tables are a starting point, not acceptance of
 the full global account model. Auth-provider setup requires an actual tenant and
 configuration. No production payment/video integration has been introduced.
 
-Next implementation slice: managed sign-in, host-scoped sessions and authenticated
-onboarding/admin/member screens. Overall Phase 0 external gates remain open.
+Next implementation slice: hosted managed sign-in integration and hub-creation UI.
+Overall Phase 0 external gates remain open.

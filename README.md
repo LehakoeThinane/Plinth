@@ -9,7 +9,10 @@ Do not push development changes directly to `main`. Repository branch protection
 must be configured separately to enforce this policy; workflow triggers alone
 do not prevent direct pushes or merges.
 
-This workspace starts the Enterprise Knowledge Exchange implementation with dependency-free JavaScript domain logic. It is not yet a running storefront, API, or production deployment.
+This workspace builds the Enterprise Knowledge Exchange as a modular JavaScript
+application with PostgreSQL persistence and configurable managed authentication.
+Local technical foundations are verified; production configuration and deployment
+are still pending.
 
 ## Implemented
 
@@ -57,7 +60,11 @@ Run npm run test:db:embedded. All 21 embedded SQL/RLS and database-backed HTTP c
 
 ## Current Phase 0 status
 
-The technical foundation is verified locally: npm run verify passes 49 checks and npm run test:db passes 21 cases against full PostgreSQL 17. Redis is healthy. See [Phase 0 acceptance](docs/phase-0/status.md) for the current evidence and remaining vendor/legal and AWS staging gates. npm run dev starts a localhost health shell; it does not issue credentials or deliver protected content.
+The Phase 0 foundation was verified locally against full PostgreSQL 17 and Redis.
+See [Phase 0 acceptance](docs/phase-0/status.md) for evidence and remaining
+vendor/legal and AWS staging gates, and the Phase 1 status for current test counts.
+npm run dev starts a localhost health shell; it does not issue credentials or
+deliver protected content.
 
 Terraform staging/state-bootstrap configurations are now available and provider-schema validated. See infra/README.md. Preparation is complete; overall Phase 0 remains pending external vendor/legal and real AWS account/deployment evidence.
 
@@ -66,7 +73,9 @@ Terraform staging/state-bootstrap configurations are now available and provider-
 See [Phase 1 status](docs/phase-1/status.md) for implemented consent, global identity,
 organisation/SSO configuration, hub creation/joining, resolution and safe branding.
 The configured application renders a public storefront shell at `/h/{slug}`.
-Managed authentication and browser sessions still require implementation and
-provider configuration. `npm run dev` remains a health shell; it does not enable
-test authentication or seed accounts. Apply migrations 003–005 in order to an
+The managed JWT adapter, persistent host/hub-scoped sessions and authenticated
+join/member/admin shells are implemented; real provider configuration and hosted
+sign-in integration remain. See [authentication setup](docs/phase-1/authentication.md).
+`npm run dev` remains a health shell; it does not enable test authentication or
+seed accounts. Apply migrations 003–007 in order to an
 existing local database; fresh Compose volumes and CI apply them automatically.

@@ -9,11 +9,30 @@ import { ConsentRepository } from '../src/db/consent-repository.js';
 import { IdentityRepository } from '../src/db/identity-repository.js';
 import { createApplication } from '../src/app.js';
 import { HubRepository } from '../src/db/hub-repository.js';
+import { AuthRepository } from '../src/db/auth-repository.js';
+import { BrowserSessions } from '../src/modules/identity/browser-sessions.js';
+import { createManagedAuthenticator } from '../src/modules/identity/managed-auth.js';
+import { generateKeyPair,exportJWK,createLocalJWKSet,SignJWT } from 'jose';
+import { request as httpRequest } from 'node:http';
+// Native HTTP preserves an explicit Host for reverse-proxy origin tests; Fetch
+// implementations may replace that forbidden browser header with localhost.
+function fetch(url,options={}) {
+  if(!options.headers?.host)return globalThis.fetch(url,options);
+  return new Promise((resolve,reject)=>{
+    const req=httpRequest(url,{method:options.method??'GET',headers:options.headers},res=>{
+      const chunks=[];res.on('data',chunk=>chunks.push(chunk));res.on('error',reject);
+      res.on('end',()=>resolve(new Response(Buffer.concat(chunks),{status:res.statusCode,headers:res.headers})));
+    });
+    req.on('error',reject);req.end(options.body);
+  });
+}
 const embeddedMode=process.env.PLINTH_EMBEDDED_TEST==='1';
-if (!embeddedMode && (!process.env.DATABASE_URL || !process.env.TEST_ADMIN_DATABASE_URL)) throw Error('Real PostgreSQL URLs are required; integration tests cannot be skipped.');
+if (!embeddedMode && (!process.env.DATABASE_URL || !process.env.TEST_ADMIN_DATABASE_URL || !process.env.TEST_AUTH_DATABASE_URL)) throw Error('Real PostgreSQL application/admin/auth URLs are required; integration tests cannot be skipped.');
 const embedded=embeddedMode?await (await import('./embedded-postgres.js')).createEmbeddedPools():null;
 const admin=embedded?.admin??new pg.Pool({connectionString:process.env.TEST_ADMIN_DATABASE_URL,connectionTimeoutMillis:2000});
 const app=embedded?.app??new pg.Pool({connectionString:process.env.DATABASE_URL,max:1,connectionTimeoutMillis:2000});
+const auth=embedded?.auth??new pg.Pool({connectionString:process.env.TEST_AUTH_DATABASE_URL,max:2,connectionTimeoutMillis:5000});
+const authRepository=new AuthRepository(auth);
 const db=new TenantDatabase(app);
 const a=randomUUID(),b=randomUUID(),orgA=randomUUID(),orgB=randomUUID();
 const publicBoundary=randomUUID(),privateBoundary=randomUUID(),otherBoundary=randomUUID();
@@ -21,7 +40,11 @@ const publicProduct=randomUUID(),privateProduct=randomUUID(),otherProduct=random
 const context={hubId:a,orgIds:[orgA],isStaff:false};
 const userA=randomUUID(),userB=randomUUID(),entitlement=randomUUID();
 const testHubs=[a,b];
+const testUsers=[userA,userB];
+const hubOrigins=new Map([[a,'https://learn-a.example'],[b,'https://learn-b.example']]);
+const browserSessions=new BrowserSessions({store:authRepository,originForHub:async id=>hubOrigins.get(id)});
 const hostname='learn-'+a+'.example.com';
+const issuer='https://identity.example/'+a;
 let server;
 let count=0;
 async function check(name,fn){await fn();count++;console.log('PASS '+name);}
@@ -94,7 +117,7 @@ try {
   });
   await admin.query('INSERT INTO identity.users(id) VALUES ($1),($2)',[userA,userB]);
   await admin.query("INSERT INTO identity.org_members(user_id,org_id,status) VALUES ($1,$2,'active'),($3,$4,'active')",[userA,orgA,userB,orgB]);
-  const issuer='https://identity.example/'+a;
+  await admin.query('INSERT INTO identity.auth_issuers(issuer) VALUES($1)',[issuer]);
   await admin.query('INSERT INTO identity.auth_links(issuer,subject,user_id) VALUES ($1,$2,$3)',[issuer,'subject-a',userA]);
   const identityA=new IdentityRepository(db,userA),identityB=new IdentityRepository(db,userB);
   await check('global account and organisation reads stay scoped to the verified user',async()=>{
@@ -108,6 +131,30 @@ try {
   await check('issuer and subject cannot be linked to a second global account',async()=>{
     await assert.rejects(admin.query('INSERT INTO identity.auth_links(issuer,subject,user_id) VALUES ($1,$2,$3)',[issuer,'subject-a',userB]),{code:'23505'});
     await assert.rejects(db.withSnapshot({...context,userId:userA},tx=>tx.query('INSERT INTO identity.auth_links(issuer,subject,user_id) VALUES ($1,$2,$3)',[issuer,'forged',userA])),{code:'42501'});
+  });
+  await check('authentication role has function-only access and application role cannot provision accounts',async()=>{
+    const role=(await auth.query('SELECT rolsuper,rolbypassrls FROM pg_roles WHERE rolname=current_user')).rows[0];
+    assert.equal(role.rolsuper,false);assert.equal(role.rolbypassrls,false);
+    const executor=(await admin.query("SELECT rolcanlogin,rolsuper,rolbypassrls FROM pg_roles WHERE rolname='plinth_auth_executor'")).rows[0];
+    assert.deepEqual(executor,{rolcanlogin:false,rolsuper:false,rolbypassrls:false});
+    assert.equal((await admin.query("SELECT pg_get_userbyid(proowner) AS owner FROM pg_proc WHERE oid='app.resolve_auth_user(text,text,uuid)'::regprocedure")).rows[0].owner,'plinth_auth_executor');
+    assert.equal((await admin.query("SELECT pg_has_role('plinth_auth','plinth_auth_executor','MEMBER') AS member")).rows[0].member,false);
+    // Embedded pools change current role within one privileged session. Only
+    // network PostgreSQL models SET ROLE permission for an actual auth login.
+    if(!embeddedMode)await assert.rejects(auth.query('SET ROLE plinth_auth_executor'),{code:'42501'});
+    await assert.rejects(auth.query('SELECT * FROM identity.users'),{code:'42501'});
+    await assert.rejects(app.query('SELECT app.resolve_auth_user($1,$2,$3)',[issuer,'forged',randomUUID()]),{code:'42501'});
+    await assert.rejects(app.query('SELECT * FROM app.read_auth_session($1)',['0'.repeat(64)]),{code:'42501'});
+  });
+  await check('disabled issuers cannot provision and repeated verified subjects resolve one global user',async()=>{
+    assert.equal(await authRepository.resolveUser(issuer,'subject-a'),null);
+    await admin.query('UPDATE identity.auth_issuers SET enabled=true WHERE issuer=$1',[issuer]);
+    assert.equal(await authRepository.resolveUser(issuer,'subject-a'),userA);
+    const before=(await admin.query('SELECT count(*)::int AS n FROM identity.users')).rows[0].n;
+    const identities=await Promise.all([authRepository.resolveUser(issuer,'new-subject'),authRepository.resolveUser(issuer,'new-subject')]);
+    assert.equal(identities[0],identities[1]);testUsers.push(identities[0]);
+    assert.equal((await admin.query('SELECT count(*)::int AS n FROM identity.users')).rows[0].n,before+1);
+    assert.equal((await admin.query('SELECT * FROM tenancy.memberships WHERE user_id=$1',[identities[0]])).rows.length,0);
   });
   await admin.query("INSERT INTO identity.sso_configurations(org_id,protocol,issuer,client_id) VALUES ($1,'oidc',$2,'company-client')",[orgA,issuer]);
   await check('company SSO configuration is visible only to an active organisation admin',async()=>{
@@ -189,17 +236,29 @@ try {
   await admin.query("UPDATE catalogue.lessons SET status='published' WHERE hub_id=$1",[a]);
   await admin.query('INSERT INTO access.entitlements(hub_id,id,user_id,target_id) VALUES ($1,$2,$3,$4)',[a,entitlement,userA,privateProduct]);
   const cache=new MemoryAccessCache();
-  server=createApplication({pool:app,cache,authenticate:async token=>token==='learner-a'?{userId:userA}:token==='learner-b'?{userId:userB}:null});
+  const authKeys=await generateKeyPair('ES256'),authJwk=await exportJWK(authKeys.publicKey);authJwk.kid='integration';
+  const managedAuthenticate=createManagedAuthenticator({issuer,audience:'plinth-api',algorithms:['ES256'],keySet:createLocalJWKSet({keys:[authJwk]}),resolveUser:(iss,sub)=>authRepository.resolveUser(iss,sub)});
+  server=createApplication({pool:app,cache,browserSessions,authenticate:async token=>token==='learner-a'?{userId:userA,expiresAt:new Date(Date.now()+600000)}:token==='learner-b'?{userId:userB,expiresAt:new Date(Date.now()+600000)}:managedAuthenticate(token)});
   server.listen(0,'127.0.0.1');await once(server,'listening');
   const base='http://127.0.0.1:'+server.address().port;
   const url=base+'/v1/hubs/'+a+'/lessons/'+lesson+'/access';
   const headers={authorization:'Bearer learner-a'};
+  await check('signed managed token resolves the global account through the constrained auth role',async()=>{
+    const jwt=await new SignJWT({userId:userB,role:'owner'}).setProtectedHeader({alg:'ES256',kid:'integration',typ:'at+jwt'})
+      .setIssuer(issuer).setAudience('plinth-api').setSubject('subject-a').setIssuedAt().setExpirationTime('10m').sign(authKeys.privateKey);
+    const response=await fetch(url,{headers:{authorization:'Bearer '+jwt}});
+    assert.equal(response.status,200);assert.equal((await response.json()).decision,'allowed');
+    const rejected=await new SignJWT({}).setProtectedHeader({alg:'ES256',kid:'integration',typ:'at+jwt'})
+      .setIssuer(issuer).setAudience('other-api').setSubject('must-not-provision').setIssuedAt().setExpirationTime('10m').sign(authKeys.privateKey);
+    assert.equal((await fetch(url,{headers:{authorization:'Bearer '+rejected}})).status,401);
+    assert.equal((await admin.query('SELECT * FROM identity.auth_links WHERE issuer=$1 AND subject=$2',[issuer,'must-not-provision'])).rows.length,0);
+  });
   let createdHub,createdSlug;
   await check('HTTP creates a hub with an owner and rejects duplicate slugs',async()=>{
     const slug='new-'+randomUUID(),body=JSON.stringify({slug,displayName:'Created Hub',role:'admin',userId:userB});
     assert.equal((await fetch(base+'/v1/hubs',{method:'POST',body})).status,401);
     const response=await fetch(base+'/v1/hubs',{method:'POST',headers,body});
-    assert.equal(response.status,201);const created=await response.json();createdHub=created.id;createdSlug=created.slug;testHubs.push(createdHub);
+    assert.equal(response.status,201);const created=await response.json();createdHub=created.id;createdSlug=created.slug;testHubs.push(createdHub);hubOrigins.set(createdHub,'https://learn-new.example');
     assert.deepEqual(await hubsA.membership(createdHub),{role:'owner',status:'active'});
     assert.equal((await fetch(base+'/v1/hubs',{method:'POST',headers,body})).status,409);
     const resolved=await fetch(base+'/v1/hubs/resolve?slug='+slug);
@@ -251,6 +310,56 @@ try {
     assert.ok(!html.includes('<script>'));
     assert.ok(!html.includes('<img src=x'));
   });
+  let sessionCookie,csrfToken;
+  const browserHeaders={host:'learn-a.example',origin:'https://learn-a.example'};
+  await check('browser session exchange requires a verified bearer and exact trusted origin',async()=>{
+    const sessionUrl=base+'/v1/hubs/'+a+'/session';
+    assert.equal((await fetch(sessionUrl,{method:'POST',headers:browserHeaders})).status,401);
+    assert.equal((await fetch(sessionUrl,{method:'POST',headers:{...browserHeaders,...headers,origin:'https://evil.example'}})).status,403);
+    const response=await fetch(sessionUrl,{method:'POST',headers:{...browserHeaders,...headers}});
+    assert.equal(response.status,201);sessionCookie=response.headers.get('set-cookie').split(';')[0];csrfToken=(await response.json()).csrfToken;
+    assert.match(response.headers.get('set-cookie'),/Secure; HttpOnly; SameSite=Lax/);
+    assert.ok(!response.headers.get('set-cookie').includes('Domain='));
+  });
+  await check('browser cookies cannot cross hub or host even with forwarded headers',async()=>{
+    const scoped={...browserHeaders,cookie:sessionCookie};
+    assert.equal((await fetch(base+'/v1/hubs/'+a+'/membership',{headers:scoped})).status,200);
+    assert.equal((await fetch(base+'/v1/hubs/'+b+'/membership',{headers:scoped})).status,404);
+    assert.equal((await fetch(base+'/v1/hubs/'+a+'/membership',{headers:{...scoped,host:'learn-b.example','x-forwarded-host':'learn-a.example'}})).status,401);
+  });
+  await check('cookie mutations require CSRF and same-origin request',async()=>{
+    const joinUrl=base+'/v1/hubs/'+a+'/join',scoped={...browserHeaders,cookie:sessionCookie};
+    assert.equal((await fetch(joinUrl,{method:'POST',headers:scoped})).status,403);
+    assert.equal((await fetch(joinUrl,{method:'POST',headers:{...scoped,'x-csrf-token':csrfToken,origin:'https://evil.example'}})).status,403);
+    assert.equal((await fetch(joinUrl,{method:'POST',headers:{...scoped,'x-csrf-token':csrfToken}})).status,200);
+  });
+  await check('member shell captures consent and admin shell checks active membership role',async()=>{
+    const scoped={...browserHeaders,cookie:sessionCookie};
+    const member=await fetch(base+'/h/test-'+a+'/member',{headers:scoped});
+    assert.equal(member.status,200);assert.match(await member.text(),/Your consent choices/);
+    assert.equal((await fetch(base+'/h/test-'+a+'/admin',{headers:scoped})).status,404);
+    assert.equal((await fetch(base+'/h/test-'+b+'/member',{headers:scoped})).status,404);
+    const adminSession=await fetch(base+'/v1/hubs/'+createdHub+'/session',{method:'POST',headers:{...headers,host:'learn-new.example',origin:'https://learn-new.example'}});
+    assert.equal(adminSession.status,201);
+    const adminPage=await fetch(base+'/h/'+createdSlug+'/admin',{headers:{host:'learn-new.example',cookie:adminSession.headers.get('set-cookie').split(';')[0]}});
+    assert.equal(adminPage.status,200);const html=await adminPage.text();assert.match(html,/Hub branding/);assert.ok(!html.includes('<script>alert'));
+    const asset=await fetch(base+'/assets/plinth-shell.js');assert.equal(asset.status,200);assert.match(asset.headers.get('content-type'),/javascript/);
+  });
+  await check('logout deletes persistent session so a copied old cookie fails',async()=>{
+    const scoped={...browserHeaders,cookie:sessionCookie,'x-csrf-token':csrfToken};
+    const logout=await fetch(base+'/v1/hubs/'+a+'/session',{method:'DELETE',headers:scoped});
+    assert.equal(logout.status,200);assert.match(logout.headers.get('set-cookie'),/Max-Age=0/);
+    assert.equal((await fetch(base+'/v1/hubs/'+a+'/membership',{headers:scoped})).status,401);
+  });
+  await check('expired PostgreSQL sessions fail authentication and can be pruned',async()=>{
+    const exchanged=await fetch(base+'/v1/hubs/'+a+'/session',{method:'POST',headers:{...browserHeaders,...headers}});
+    assert.equal(exchanged.status,201);
+    const expiredCookie=exchanged.headers.get('set-cookie').split(';')[0];
+    await admin.query("UPDATE identity.auth_sessions SET expires_at=now()-interval '1 second' WHERE hub_id=$1",[a]);
+    assert.equal((await fetch(base+'/v1/hubs/'+a+'/membership',{headers:{...browserHeaders,cookie:expiredCookie}})).status,401);
+    await authRepository.prune();
+    assert.equal((await admin.query('SELECT count(*)::int AS n FROM identity.auth_sessions WHERE hub_id=$1',[a])).rows[0].n,0);
+  });
   await check('authenticated consent API ignores forged user headers',async()=>{
     const consentUrl=base+'/v1/hubs/'+a+'/consents';
     assert.equal((await fetch(consentUrl)).status,401);
@@ -280,15 +389,17 @@ try {
 } finally {
   if(server)await new Promise(resolve=>server.close(resolve));
   try {
+  await admin.query('DELETE FROM identity.auth_sessions WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM compliance.consent_events WHERE hub_id=ANY($1::uuid[])',[[a,b]]);
   await admin.query('DELETE FROM compliance.consents WHERE hub_id=ANY($1::uuid[])',[[a,b]]);
   await admin.query('DELETE FROM compliance.consent_purposes WHERE hub_id=ANY($1::uuid[])',[[a,b]]);
-  await admin.query('DELETE FROM identity.auth_links WHERE user_id=ANY($1::uuid[])',[[userA,userB]]);
+  await admin.query('DELETE FROM identity.auth_links WHERE user_id=ANY($1::uuid[])',[testUsers]);
+  await admin.query('DELETE FROM identity.auth_issuers WHERE issuer=$1',[issuer]);
   await admin.query('DELETE FROM identity.sso_configurations WHERE org_id=ANY($1::uuid[])',[[orgA,orgB]]);
   await admin.query('DELETE FROM access.entitlements WHERE hub_id=ANY($1::uuid[])',[[a,b]]);
   await admin.query('DELETE FROM tenancy.memberships WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM identity.org_members WHERE user_id=ANY($1::uuid[])',[[userA,userB]]);
-  await admin.query('DELETE FROM identity.users WHERE id=ANY($1::uuid[])',[[userA,userB]]);
+  await admin.query('DELETE FROM identity.users WHERE id=ANY($1::uuid[])',[testUsers]);
   await admin.query('DELETE FROM catalogue.lessons WHERE hub_id=ANY($1::uuid[])',[[a,b]]);
   await admin.query('DELETE FROM catalogue.products WHERE hub_id=ANY($1::uuid[])',[[a,b]]);
   await admin.query('DELETE FROM tenancy.boundaries WHERE hub_id=ANY($1::uuid[])',[[a,b]]);
@@ -296,5 +407,5 @@ try {
   await admin.query('DELETE FROM tenancy.hub_profiles WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM tenancy.hubs WHERE id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM identity.organisations WHERE id=ANY($1::uuid[])',[[orgA,orgB]]);
-  } finally { await app.end();await admin.end();if(embedded)await embedded.close(); }
+  } finally { await app.end();await auth.end();await admin.end();if(embedded)await embedded.close(); }
 }

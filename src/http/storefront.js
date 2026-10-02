@@ -1,4 +1,4 @@
-function escapeText(value) {
+export function escapeText(value) {
   return String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[char]);
 }
 export function renderStorefront(hub) {
