@@ -8,6 +8,7 @@ import { auditPolicies } from '../src/db/policy-audit.js';
 import { ConsentRepository } from '../src/db/consent-repository.js';
 import { IdentityRepository } from '../src/db/identity-repository.js';
 import { createApplication } from '../src/app.js';
+import { HubRepository } from '../src/db/hub-repository.js';
 const embeddedMode=process.env.PLINTH_EMBEDDED_TEST==='1';
 if (!embeddedMode && (!process.env.DATABASE_URL || !process.env.TEST_ADMIN_DATABASE_URL)) throw Error('Real PostgreSQL URLs are required; integration tests cannot be skipped.');
 const embedded=embeddedMode?await (await import('./embedded-postgres.js')).createEmbeddedPools():null;
@@ -19,6 +20,8 @@ const publicBoundary=randomUUID(),privateBoundary=randomUUID(),otherBoundary=ran
 const publicProduct=randomUUID(),privateProduct=randomUUID(),otherProduct=randomUUID(),lesson=randomUUID();
 const context={hubId:a,orgIds:[orgA],isStaff:false};
 const userA=randomUUID(),userB=randomUUID(),entitlement=randomUUID();
+const testHubs=[a,b];
+const hostname='learn-'+a+'.example.com';
 let server;
 let count=0;
 async function check(name,fn){await fn();count++;console.log('PASS '+name);}
@@ -30,6 +33,8 @@ try {
   });
   await check('policy audit passes baseline',()=>auditPolicies(admin));
   await admin.query('INSERT INTO tenancy.hubs(id,slug) VALUES ($1,$3),($2,$4)',[a,b,'test-'+a,'test-'+b]);
+  await admin.query("INSERT INTO tenancy.hub_profiles(hub_id,display_name) VALUES ($1,'Hub A'),($2,'Hub B')",[a,b]);
+  await admin.query('INSERT INTO tenancy.hub_domains(hub_id,hostname,verified_at) VALUES ($1,$2,now()),($3,$4,NULL)',[a,hostname,b,'pending-'+b+'.example.com']);
   await admin.query("INSERT INTO identity.organisations(id,display_name) VALUES ($1,'Company A'),($2,'Company B')",[orgA,orgB]);
   await admin.query('INSERT INTO tenancy.boundaries(hub_id,id,company_org) VALUES ($1,$2,NULL),($1,$3,$4),($5,$6,$7)',[a,publicBoundary,privateBoundary,orgA,b,otherBoundary,orgB]);
   await admin.query("INSERT INTO catalogue.products(hub_id,id,boundary_id,title,visibility) VALUES ($1,$2,$3,'public','public'),($1,$4,$5,'private','company'),($6,$7,$8,'other','company')",[a,publicProduct,publicBoundary,privateProduct,privateBoundary,b,otherProduct,otherBoundary]);
@@ -121,6 +126,29 @@ try {
     await assert.rejects(admin.query("INSERT INTO identity.org_members(user_id,org_id,status) VALUES ($1,$2,'active')",[userA,randomUUID()]),{code:'23503'});
   });
   await admin.query("INSERT INTO tenancy.memberships(hub_id,user_id,role,status) VALUES ($1,$2,'member','active'),($1,$3,'member','active')",[a,userA,userB]);
+  const publicHubs=new HubRepository(db),hubsA=new HubRepository(db,userA);
+  await check('public hub lookup resolves only the requested slug or verified domain',async()=>{
+    assert.equal((await publicHubs.resolve({slug:'test-'+a})).id,a);
+    assert.equal((await publicHubs.resolve({hostname})).id,a);
+    await assert.rejects(publicHubs.resolve({hostname:'pending-'+b+'.example.com'}),{status:404});
+    await assert.rejects(publicHubs.resolve({slug:'test-'+a,hostname}),{status:400});
+    await assert.rejects(publicHubs.resolve({hostname:'https://'+hostname}),{status:400});
+    assert.deepEqual(Object.keys(await publicHubs.resolve({slug:'test-'+a})).sort(),['id','slug','display_name','description','primary_color','font','logo_path'].sort());
+  });
+  await check('creation rolls back the hub and owner if profile validation fails',async()=>{
+    const newHub=randomUUID(),badSlug='rollback-'+newHub;
+    await assert.rejects(db.withSnapshot({...context,hubId:newHub,userId:userA},tx=>tx.query('SELECT app.create_hub($1,$2)',[badSlug,''])),{code:'23514'});
+    assert.equal((await admin.query('SELECT id FROM tenancy.hubs WHERE id=$1',[newHub])).rows.length,0);
+    assert.equal((await admin.query('SELECT * FROM tenancy.memberships WHERE hub_id=$1',[newHub])).rows.length,0);
+  });
+  await check('hub profile and domain tables enforce tenant isolation',async()=>{
+    await db.withSnapshot({...context,userId:userA},async tx=>{
+      assert.equal((await tx.query('SELECT * FROM tenancy.hub_profiles WHERE hub_id=$1',[b])).rows.length,0);
+      assert.equal((await tx.query('SELECT * FROM tenancy.hub_domains')).rows.length,0);
+    });
+    await assert.rejects(db.withSnapshot({...context,userId:userA},tx=>tx.query("INSERT INTO tenancy.memberships(hub_id,user_id,role,status) VALUES ($1,$2,'owner','active')",[b,userA])),{code:'42501'});
+    await assert.rejects(db.withSnapshot({...context,userId:userA},tx=>tx.query('UPDATE tenancy.hub_domains SET verified_at=now()')),{code:'42501'});
+  });
   await admin.query("INSERT INTO compliance.consent_purposes(hub_id,purpose,notice_version,notice_text) VALUES ($1,'marketing','v1','Hub A marketing'),($2,'marketing','v1','Hub B marketing')",[a,b]);
   const consentA=new ConsentRepository(db,userA),consentB=new ConsentRepository(db,userB);
   await check('consent grant and withdrawal preserve an audit trail',async()=>{
@@ -166,6 +194,63 @@ try {
   const base='http://127.0.0.1:'+server.address().port;
   const url=base+'/v1/hubs/'+a+'/lessons/'+lesson+'/access';
   const headers={authorization:'Bearer learner-a'};
+  let createdHub,createdSlug;
+  await check('HTTP creates a hub with an owner and rejects duplicate slugs',async()=>{
+    const slug='new-'+randomUUID(),body=JSON.stringify({slug,displayName:'Created Hub',role:'admin',userId:userB});
+    assert.equal((await fetch(base+'/v1/hubs',{method:'POST',body})).status,401);
+    const response=await fetch(base+'/v1/hubs',{method:'POST',headers,body});
+    assert.equal(response.status,201);const created=await response.json();createdHub=created.id;createdSlug=created.slug;testHubs.push(createdHub);
+    assert.deepEqual(await hubsA.membership(createdHub),{role:'owner',status:'active'});
+    assert.equal((await fetch(base+'/v1/hubs',{method:'POST',headers,body})).status,409);
+    const resolved=await fetch(base+'/v1/hubs/resolve?slug='+slug);
+    assert.equal(resolved.status,200);assert.equal((await resolved.json()).id,createdHub);
+  });
+  await check('joining twice is idempotent and cannot request an elevated role',async()=>{
+    const joinUrl=base+'/v1/hubs/'+createdHub+'/join';
+    for(let i=0;i<2;i++) {
+      const response=await fetch(joinUrl,{method:'POST',headers:{authorization:'Bearer learner-b','x-role':'owner'},body:JSON.stringify({role:'owner'})});
+      assert.equal(response.status,200);assert.deepEqual(await response.json(),{role:'member',status:'active'});
+    }
+    assert.equal((await admin.query('SELECT count(*)::int AS n FROM tenancy.memberships WHERE hub_id=$1 AND user_id=$2',[createdHub,userB])).rows[0].n,1);
+  });
+  await check('only active owner/admin can brand a hub and script configuration is rejected',async()=>{
+    const brandingUrl=base+'/v1/hubs/'+createdHub+'/branding';
+    assert.equal((await fetch(brandingUrl,{method:'PUT',headers:{authorization:'Bearer learner-b','x-is-staff':'true'},body:JSON.stringify({displayName:'Hijacked'})})).status,404);
+    const updated=await fetch(brandingUrl,{method:'PUT',headers,body:JSON.stringify({displayName:'Branded Hub',primaryColor:'#123ABC',font:'serif'})});
+    assert.equal(updated.status,200);assert.equal((await updated.json()).display_name,'Branded Hub');
+    for(const branding of [{script:'alert(1)'},{primaryColor:'red;display:none'},{font:'url(https://evil.example)'},{logoPath:'/assets/hubs/'+b+'/branding/logo.png'}]) {
+      assert.equal((await fetch(brandingUrl,{method:'PUT',headers,body:JSON.stringify(branding)})).status,400);
+    }
+    await assert.rejects(db.withSnapshot({...context,hubId:createdHub,userId:userA},tx=>tx.query("UPDATE tenancy.hub_profiles SET primary_color='red;display:none'")),{code:'23514'});
+    await assert.rejects(db.withSnapshot({...context,hubId:createdHub,userId:userA},tx=>tx.query('UPDATE tenancy.hub_profiles SET logo_path=$1',['/assets/hubs/'+b+'/branding/logo.png'])),{code:'23514'});
+    await admin.query("UPDATE tenancy.memberships SET status='suspended' WHERE hub_id=$1 AND user_id=$2",[createdHub,userA]);
+    assert.equal((await fetch(brandingUrl,{method:'PUT',headers,body:JSON.stringify({displayName:'Stale owner'})})).status,404);
+    await admin.query("UPDATE tenancy.memberships SET status='active' WHERE hub_id=$1 AND user_id=$2",[createdHub,userA]);
+  });
+  await check('closed hubs and ended memberships cannot be joined to regain access',async()=>{
+    await admin.query("UPDATE tenancy.hub_profiles SET join_mode='closed' WHERE hub_id=$1",[b]);
+    assert.equal((await fetch(base+'/v1/hubs/'+b+'/join',{method:'POST',headers})).status,404);
+    assert.equal((await fetch(base+'/v1/hubs/'+b+'/membership',{headers})).status,404);
+    await admin.query("UPDATE tenancy.memberships SET status='ended' WHERE hub_id=$1 AND user_id=$2",[createdHub,userB]);
+    assert.equal((await fetch(base+'/v1/hubs/'+createdHub+'/join',{method:'POST',headers:{authorization:'Bearer learner-b'}})).status,404);
+  });
+  await check('unknown/unverified domain lookup cannot be overridden by forwarded headers',async()=>{
+    const response=await fetch(base+'/v1/hubs/resolve?hostname=pending-'+b+'.example.com',{headers:{'x-forwarded-host':hostname}});
+    assert.equal(response.status,404);
+  });
+  await check('public storefront renders branding as text and blocks provider script execution',async()=>{
+    const malicious='<script>alert(1)</script>';
+    await hubsA.brand(createdHub,{displayName:malicious,description:'Learn safely <img src=x onerror=alert(1)>'});
+    const response=await fetch(base+'/h/'+createdSlug);
+    assert.equal(response.status,200);
+    assert.match(response.headers.get('content-type'),/text\/html/);
+    assert.match(response.headers.get('content-security-policy'),/default-src 'none'/);
+    assert.equal(response.headers.get('set-cookie'),null);
+    const html=await response.text();
+    assert.ok(html.includes('&lt;script&gt;alert(1)&lt;/script&gt;'));
+    assert.ok(!html.includes('<script>'));
+    assert.ok(!html.includes('<img src=x'));
+  });
   await check('authenticated consent API ignores forged user headers',async()=>{
     const consentUrl=base+'/v1/hubs/'+a+'/consents';
     assert.equal((await fetch(consentUrl)).status,401);
@@ -201,13 +286,15 @@ try {
   await admin.query('DELETE FROM identity.auth_links WHERE user_id=ANY($1::uuid[])',[[userA,userB]]);
   await admin.query('DELETE FROM identity.sso_configurations WHERE org_id=ANY($1::uuid[])',[[orgA,orgB]]);
   await admin.query('DELETE FROM access.entitlements WHERE hub_id=ANY($1::uuid[])',[[a,b]]);
-  await admin.query('DELETE FROM tenancy.memberships WHERE hub_id=ANY($1::uuid[])',[[a,b]]);
+  await admin.query('DELETE FROM tenancy.memberships WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM identity.org_members WHERE user_id=ANY($1::uuid[])',[[userA,userB]]);
   await admin.query('DELETE FROM identity.users WHERE id=ANY($1::uuid[])',[[userA,userB]]);
   await admin.query('DELETE FROM catalogue.lessons WHERE hub_id=ANY($1::uuid[])',[[a,b]]);
   await admin.query('DELETE FROM catalogue.products WHERE hub_id=ANY($1::uuid[])',[[a,b]]);
   await admin.query('DELETE FROM tenancy.boundaries WHERE hub_id=ANY($1::uuid[])',[[a,b]]);
-  await admin.query('DELETE FROM tenancy.hubs WHERE id=ANY($1::uuid[])',[[a,b]]);
+  await admin.query('DELETE FROM tenancy.hub_domains WHERE hub_id=ANY($1::uuid[])',[testHubs]);
+  await admin.query('DELETE FROM tenancy.hub_profiles WHERE hub_id=ANY($1::uuid[])',[testHubs]);
+  await admin.query('DELETE FROM tenancy.hubs WHERE id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM identity.organisations WHERE id=ANY($1::uuid[])',[[orgA,orgB]]);
   } finally { await app.end();await admin.end();if(embedded)await embedded.close(); }
 }

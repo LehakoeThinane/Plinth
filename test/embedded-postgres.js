@@ -1,11 +1,12 @@
 import { PGlite } from '@electric-sql/pglite';
-import { readFile } from 'node:fs/promises';
+import { readFile,readdir } from 'node:fs/promises';
 /** Test-only single-session adapter. It runs actual PostgreSQL SQL/RLS, but
  * cannot validate independent connection concurrency or network protocol.
  */
 export async function createEmbeddedPools() {
   const engine=await PGlite.create();
-  for(const path of ['../db/local-init.sql','../db/migrations/001-tenancy.sql','../db/migrations/002-access.sql','../db/migrations/003-consent.sql','../db/migrations/004-identity.sql']) {
+  const migrations=(await readdir(new URL('../db/migrations/',import.meta.url))).filter(name=>/^\d+.*\.sql$/.test(name)).sort();
+  for(const path of ['../db/local-init.sql',...migrations.map(name=>'../db/migrations/'+name)]) {
     await engine.exec(await readFile(new URL(path,import.meta.url),'utf8'));
   }
   let queue=Promise.resolve();
