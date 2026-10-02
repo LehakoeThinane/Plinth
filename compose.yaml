@@ -13,6 +13,10 @@ services:
       - ./db/migrations/001-tenancy.sql:/docker-entrypoint-initdb.d/01-tenancy.sql:ro
       - ./db/migrations/002-access.sql:/docker-entrypoint-initdb.d/02-access.sql:ro
       - ./db/migrations/003-consent.sql:/docker-entrypoint-initdb.d/03-consent.sql:ro
+      - ./db/migrations/004-identity.sql:/docker-entrypoint-initdb.d/04-identity.sql:ro
+      - ./db/migrations/005-hubs.sql:/docker-entrypoint-initdb.d/05-hubs.sql:ro
+      - ./db/migrations/006-auth-sessions.sql:/docker-entrypoint-initdb.d/06-auth.sql:ro
+      - ./db/migrations/007-auth-function-owner.sql:/docker-entrypoint-initdb.d/07-auth-owner.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U plinth_admin -d plinth"]
       interval: 5s
