@@ -1,5 +1,14 @@
 # Plinth implementation foundation
 
+## Branch workflow
+
+Develop and push changes to `dev` first. Both CI workflows run on every push to
+`dev` and on pull requests targeting `dev` or `main`. Promote validated changes
+from `dev` to `main` through a reviewed pull request after all checks pass.
+Do not push development changes directly to `main`. Repository branch protection
+must be configured separately to enforce this policy; workflow triggers alone
+do not prevent direct pushes or merges.
+
 This workspace starts the Enterprise Knowledge Exchange implementation with dependency-free JavaScript domain logic. It is not yet a running storefront, API, or production deployment.
 
 ## Implemented
