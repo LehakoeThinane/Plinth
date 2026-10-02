@@ -16,7 +16,7 @@ export class IdentityRepository {
     return this.#db.withSnapshot({hubId,userId:this.#userId,orgIds:[],isStaff:false},async tx=>{
       const user=(await tx.query('SELECT id,display_name FROM identity.users')).rows[0];
       if(!user)throw Object.assign(new Error('Not found'),{status:404});
-      const organisations=(await tx.query(`SELECT o.id,o.display_name,m.role
+      const organisations=(await tx.query(`SELECT o.id,o.display_name,o.type,o.legal_name,m.role
         FROM identity.organisations o JOIN identity.org_members m ON m.org_id=o.id
         WHERE m.status='active' ORDER BY o.id`)).rows;
       return {user,organisations};

@@ -4,7 +4,7 @@ const cookieName='__Host-plinth-login';
 const digest=value=>createHash('sha256').update(value).digest('hex');
 const cookieAttributes='; Path=/; Secure; HttpOnly; SameSite=Lax';
 const reject=()=>Object.assign(new Error('Sign-in rejected'),{status:401});
-const views=new Set(['join','member','admin','create-hub']);
+const views=new Set(['join','member','admin','create-hub','organisations']);
 export const clearLoginCookie=cookieName+'='+cookieAttributes+'; Max-Age=0';
 /** Configuration is built from administratively trusted provider metadata.
  * Tokens are transient: only a verified issuer/subject reaches account resolution.
@@ -46,7 +46,7 @@ export class HostedSignIn {
     const attempt=await this.#store.consumeLogin(digest(state),origin);
     if(!attempt||await this.#sessions.trustedOrigin(req,attempt.hubId)!==attempt.origin)throw reject();
     const p=attempt.payload;
-    if(p.redirectUri!==origin+'/auth/callback'||!/^\/h\/[a-z0-9-]+\/(join|member|admin|create-hub)$/.test(p.returnPath))throw reject();
+    if(p.redirectUri!==origin+'/auth/callback'||!/^\/h\/[a-z0-9-]+\/(join|member|admin|create-hub|organisations)$/.test(p.returnPath))throw reject();
     let claims;
     try {
       const tokens=await oidc.authorizationCodeGrant(this.#config,new URL('/auth/callback'+url.search,origin),

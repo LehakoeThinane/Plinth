@@ -135,11 +135,47 @@ expiry cleanup, restricted roles, HTTP callbacks and hub creation without member
 This is fixture validation; a real provider tenant, TLS transport and device UAT
 are still outstanding. Existing volumes need migration 008 after 007.
 
+## Sixth implemented slice: global organisation administration
+
+Migration 009 adds self-declared company/provider type and legal name, targeted
+seven-day invitations, and an organisation audit trail. A global account can
+create an organisation and becomes its first admin atomically. Active admins can
+rename it, invite an existing account, revoke invitations, promote/demote accepted
+members, and end membership. No hub membership, entitlement or seat is granted by
+organisation creation or invitation acceptance.
+
+Invitations are bound to an exact existing global user ID. Only that signed-in
+account can accept the one-use code; only a hash is stored. New invitations grant
+member status only. Removing a member revokes pending invitations involving them;
+demoting/removing an inviter invalidates their invitations. An ended member needs
+a deliberate fresh invitation to return. Expired/revoked/used codes cannot join.
+
+All organisation writes use narrowly granted functions owned by the non-login,
+non-superuser `plinth_identity_executor`, with forced RLS. Runtime has no direct
+table mutation or executor-role membership. Updating the organisation revision
+serialises admin changes; stale repeatable-read writers retry. The last active
+admin cannot be removed/demoted, including concurrent removal attempts. Existing
+membership triggers raise the user's access version and defeat cached company
+access after removal. Audit writes occur in the same transaction and cannot be
+altered/deleted by runtime roles.
+
+The authenticated `/h/{slug}/organisations` screen lists the caller's organisations,
+shows their account ID, and supports these workflows with CSRF protection and
+escaped text. Organisation authority is independent of hub roles. Invitation codes
+are pasted into a form, never placed in URLs or browser storage; no email is sent.
+
+Validation: `npm run verify` passed 118 checks; full PostgreSQL 17 passed 68 checks.
+Tests cover restricted executor privileges, policy failures, isolation, intended
+account acceptance, expiry/replay/revocation, role changes, concurrent last-admin
+protection, HTTP/CSRF boundaries and cached company-access revocation.
+Bootstrap the identity executor before applying 009 after 008 on existing databases.
+Fresh Compose volumes and CI do this automatically. See [organisation setup](organisations.md).
+
 ## Remaining Phase 1 scope
 
 Managed provider selection/configuration and real hosted sign-in verification;
-explicit account-linking workflow; organisation
-provisioning/admin workflows; domain ownership verification, TLS/custom-host
+explicit account-linking workflow; new-account/email invitations and enterprise
+organisation verification; domain ownership verification, TLS/custom-host
 routing and browser UAT; branding asset upload/serving.
 Purpose-notice publication currently requires an administrative migration
 or controlled database operation; its provider-admin interface is not built.
@@ -148,5 +184,5 @@ The existing identity/membership tables are a starting point, not acceptance of
 the full global account model. Auth-provider setup requires an actual tenant and
 configuration. No production payment/video integration has been introduced.
 
-Next implementation slice: organisation provisioning/admin workflows.
+Next implementation slice: purpose-notice publication through the hub admin UI.
 Overall Phase 0 external gates remain open.

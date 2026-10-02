@@ -16,6 +16,7 @@ import { providerFixture } from './oidc-fixture.js';
 import { createManagedAuthenticator } from '../src/modules/identity/managed-auth.js';
 import { generateKeyPair,exportJWK,createLocalJWKSet,SignJWT } from 'jose';
 import { request as httpRequest } from 'node:http';
+import { organisationChecks } from './organisation-workflows.js';
 // Native HTTP preserves an explicit Host for reverse-proxy origin tests; Fetch
 // implementations may replace that forbidden browser header with localhost.
 function fetch(url,options={}) {
@@ -43,6 +44,7 @@ const context={hubId:a,orgIds:[orgA],isStaff:false};
 const userA=randomUUID(),userB=randomUUID(),entitlement=randomUUID();
 const testHubs=[a,b];
 const testUsers=[userA,userB];
+const testOrgs=[orgA,orgB];
 const hubOrigins=new Map([[a,'https://learn-a.example'],[b,'https://learn-b.example']]);
 const browserSessions=new BrowserSessions({store:authRepository,originForHub:async id=>hubOrigins.get(id)});
 const hostname='learn-'+a+'.example.com';
@@ -248,6 +250,7 @@ try {
   const base='http://127.0.0.1:'+server.address().port;
   const url=base+'/v1/hubs/'+a+'/lessons/'+lesson+'/access';
   const headers={authorization:'Bearer learner-a'};
+  const {orgId:createdOrg,owner:organisationsA,other:organisationsB}=await organisationChecks({admin,app,db,a,b,userA,userB,check,testOrgs,testUsers,embeddedMode});
   await check('login storage is function-only, validates expiry and consumes once under concurrent callbacks',async()=>{
     for(const connection of [app,auth])await assert.rejects(connection.query('SELECT * FROM identity.login_attempts'),e=>e.code==='42501');
     await assert.rejects(app.query('SELECT * FROM app.consume_login_attempt($1,$2)',['1'.repeat(64),'https://learn-a.example']),{code:'42501'});
@@ -374,6 +377,33 @@ try {
     assert.equal((await fetch(base+'/v1/hubs/'+b+'/membership',{headers:scoped})).status,404);
     assert.equal((await fetch(base+'/v1/hubs/'+a+'/membership',{headers:{...scoped,host:'learn-b.example','x-forwarded-host':'learn-a.example'}})).status,401);
   });
+  await check('organisation HTTP screens and writes respect admin role, escaping, hub session and CSRF',async()=>{
+    const scoped={...browserHeaders,cookie:sessionCookie},route=base+'/v1/hubs/'+a+'/organisations/'+createdOrg;
+    const account=await fetch(base+'/v1/hubs/'+a+'/account',{headers:scoped});assert.equal(account.status,200);assert.equal((await account.json()).user.id,userA);
+    const page=await fetch(base+'/h/test-'+a+'/organisations?org='+createdOrg,{headers:scoped});assert.equal(page.status,200);
+    const html=await page.text();assert.match(html,/Company &lt;script&gt;bad&lt;\/script&gt;/);assert.ok(!html.includes('<script>bad'));
+    assert.equal((await fetch(route,{headers:{authorization:'Bearer learner-b','x-org-id':createdOrg,'x-role':'admin'}})).status,404);
+    const body=JSON.stringify({displayName:'Renamed Company',legalName:'Renamed Company Ltd'});
+    assert.equal((await fetch(route,{method:'PUT',headers:scoped,body})).status,403);
+    assert.equal((await fetch(route,{method:'PUT',headers:{...scoped,'x-csrf-token':csrfToken},body})).status,200);
+    assert.equal((await fetch(base+'/v1/hubs/'+b+'/organisations/'+createdOrg,{headers:scoped})).status,404);
+    assert.equal((await fetch(route+'/members/'+userA,{method:'PUT',headers:{...scoped,'x-csrf-token':csrfToken},body:JSON.stringify({role:'owner'})})).status,400);
+  });
+  await check('organisation HTTP invitations, acceptance, role changes and revocation enforce account ownership',async()=>{
+    const route=base+'/v1/hubs/'+a+'/organisations/'+createdOrg,otherHeaders={authorization:'Bearer learner-b'};
+    const created=await fetch(route+'/invitations',{method:'POST',headers,body:JSON.stringify({userId:userB,role:'admin'})});assert.equal(created.status,201);
+    const invitation=await created.json();
+    assert.equal((await fetch(route+'/accept',{method:'POST',headers,body:JSON.stringify(invitation)})).status,404);
+    assert.equal((await fetch(route+'/accept',{method:'POST',headers:otherHeaders,body:JSON.stringify(invitation)})).status,200);
+    assert.equal((await fetch(route,{headers:otherHeaders})).status,404);
+    assert.equal((await fetch(route+'/members/'+userB,{method:'PUT',headers,body:JSON.stringify({role:'admin'})})).status,200);
+    assert.equal((await fetch(route,{headers:otherHeaders})).status,200);
+    assert.equal((await fetch(route+'/members/'+userB,{method:'DELETE',headers})).status,200);
+    const pending=await fetch(route+'/invitations',{method:'POST',headers,body:JSON.stringify({userId:userB})});assert.equal(pending.status,201);
+    const revoked=await pending.json();
+    assert.equal((await fetch(route+'/invitations/'+revoked.id,{method:'DELETE',headers})).status,200);
+    assert.equal((await fetch(route+'/accept',{method:'POST',headers:otherHeaders,body:JSON.stringify(revoked)})).status,404);
+  });
   await check('cookie mutations require CSRF and same-origin request',async()=>{
     const joinUrl=base+'/v1/hubs/'+a+'/join',scoped={...browserHeaders,cookie:sessionCookie};
     assert.equal((await fetch(joinUrl,{method:'POST',headers:scoped})).status,403);
@@ -436,8 +466,14 @@ try {
   });
   await check('database-triggered seat/entitlement revocation defeats cached allow',async()=>{await admin.query('UPDATE access.entitlements SET revoked=true WHERE id=$1',[entitlement]);assert.equal((await fetch(url,{headers})).status,404);});
   await admin.query('UPDATE access.entitlements SET revoked=false WHERE id=$1',[entitlement]);
-  await check('company removal prevents access despite retained entitlement',async()=>{await admin.query("UPDATE identity.org_members SET status='ended' WHERE user_id=$1",[userA]);assert.equal((await fetch(url,{headers})).status,404);});
-  await admin.query("UPDATE identity.org_members SET status='active' WHERE user_id=$1",[userA]);
+  await check('company admin removal through HTTP invalidates cached access despite retained entitlement',async()=>{
+    await admin.query("INSERT INTO identity.org_members(user_id,org_id,status,role) VALUES($1,$2,'active','admin')",[userB,orgA]);
+    assert.equal((await fetch(url,{headers})).status,200);
+    const removed=await fetch(base+'/v1/hubs/'+a+'/organisations/'+orgA+'/members/'+userA,{method:'DELETE',headers:{authorization:'Bearer learner-b'}});
+    assert.equal(removed.status,200);assert.equal((await fetch(url,{headers})).status,404);
+    const invitation=await organisationsB.invite(a,orgA,{userId:userA});await organisationsA.accept(a,orgA,invitation);
+    await admin.query('DELETE FROM identity.org_members WHERE org_id=$1 AND user_id=$2',[orgA,userB]);
+  });
   await check('suspended staff cannot use stale staff context',async()=>{await admin.query("UPDATE tenancy.memberships SET role='admin',status='suspended' WHERE user_id=$1",[userA]);assert.equal((await fetch(url,{headers})).status,404);});
   await check('suspended members can withdraw but cannot grant consent',async()=>{
     await consentA.set(a,{purpose:'marketing',granted:false,noticeVersion:'v1'});
@@ -449,6 +485,8 @@ try {
   try {
   await admin.query('DELETE FROM identity.login_attempts WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM identity.auth_sessions WHERE hub_id=ANY($1::uuid[])',[testHubs]);
+  await admin.query('DELETE FROM identity.org_invitations WHERE org_id=ANY($1::uuid[])',[testOrgs]);
+  await admin.query('DELETE FROM identity.org_events WHERE org_id=ANY($1::uuid[])',[testOrgs]);
   await admin.query('DELETE FROM compliance.consent_events WHERE hub_id=ANY($1::uuid[])',[[a,b]]);
   await admin.query('DELETE FROM compliance.consents WHERE hub_id=ANY($1::uuid[])',[[a,b]]);
   await admin.query('DELETE FROM compliance.consent_purposes WHERE hub_id=ANY($1::uuid[])',[[a,b]]);
@@ -457,7 +495,7 @@ try {
   await admin.query('DELETE FROM identity.sso_configurations WHERE org_id=ANY($1::uuid[])',[[orgA,orgB]]);
   await admin.query('DELETE FROM access.entitlements WHERE hub_id=ANY($1::uuid[])',[[a,b]]);
   await admin.query('DELETE FROM tenancy.memberships WHERE hub_id=ANY($1::uuid[])',[testHubs]);
-  await admin.query('DELETE FROM identity.org_members WHERE user_id=ANY($1::uuid[])',[[userA,userB]]);
+  await admin.query('DELETE FROM identity.org_members WHERE user_id=ANY($1::uuid[])',[testUsers]);
   await admin.query('DELETE FROM identity.users WHERE id=ANY($1::uuid[])',[testUsers]);
   await admin.query('DELETE FROM catalogue.lessons WHERE hub_id=ANY($1::uuid[])',[[a,b]]);
   await admin.query('DELETE FROM catalogue.products WHERE hub_id=ANY($1::uuid[])',[[a,b]]);
@@ -465,6 +503,6 @@ try {
   await admin.query('DELETE FROM tenancy.hub_domains WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM tenancy.hub_profiles WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM tenancy.hubs WHERE id=ANY($1::uuid[])',[testHubs]);
-  await admin.query('DELETE FROM identity.organisations WHERE id=ANY($1::uuid[])',[[orgA,orgB]]);
+  await admin.query('DELETE FROM identity.organisations WHERE id=ANY($1::uuid[])',[testOrgs]);
   } finally { await app.end();await auth.end();await admin.end();if(embedded)await embedded.close(); }
 }

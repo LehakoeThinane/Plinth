@@ -1,9 +1,10 @@
 import { escapeText as e } from './storefront.js';
-export function renderApplicationShell({hub,view,membership,consents,csrfToken}) {
+import { renderOrganisations } from './organisation-shell.js';
+export function renderApplicationShell({hub,view,membership,consents,csrfToken,account,organisation}) {
   const choices=consents.map(c=>`<label class="choice"><input type="checkbox" name="${e(c.purpose)}" data-purpose="${e(c.purpose)}" data-version="${e(c.notice_version)}"${c.granted?' checked':''}>
     <span><strong>${e(c.purpose.replaceAll('_',' '))}</strong><br>${e(c.notice_text)}</span></label>`).join('');
   const consentForm=`<form id="consents"><h2>Your consent choices</h2><p>These choices apply only to ${e(hub.display_name)}. You can withdraw them here.</p>${choices||'<p>No optional consent choices are available.</p>'}${choices?'<button type="submit">Save choices</button>':''}</form>`;
-  const content=view==='create-hub'?`<h1>Create a learning hub</h1><form id="create-hub">
+  const content=view==='organisations'?renderOrganisations({hub,account,organisation}):view==='create-hub'?`<h1>Create a learning hub</h1><form id="create-hub">
     <label>Hub name<input name="displayName" maxlength="200" required></label>
     <label>Hub address<input name="slug" minlength="3" maxlength="63" pattern="[a-z0-9]+(-[a-z0-9]+)*" required aria-describedby="slug-help"></label>
     <p id="slug-help">Use lowercase letters, numbers and single hyphens.</p><button type="submit">Create hub</button></form>`:
@@ -26,9 +27,10 @@ textarea{min-height:100px}input[type=color]{height:48px;max-width:160px}.choice{
 button{font:inherit;padding:10px 16px;border-radius:6px;border:0;background:#2456A6;color:white;cursor:pointer}button:disabled{opacity:.6}a{color:#2456A6}
 #status{min-height:24px}h2{margin-top:0}
 </style><script defer src="/assets/plinth-shell.js"></script></head>
-<body data-hub-id="${e(hub.id)}" data-slug="${e(hub.slug)}" data-csrf="${e(csrfToken)}"><header><nav>
+<body data-hub-id="${e(hub.id)}" data-slug="${e(hub.slug)}" data-csrf="${e(csrfToken)}" data-org-id="${e(organisation?.organisation.id)}"><header><nav>
 <a href="/h/${e(hub.slug)}">${e(hub.display_name)}</a><a href="/h/${e(hub.slug)}/member">Member area</a>
 <a href="/h/${e(hub.slug)}/create-hub">Create a hub</a>
+<a href="/h/${e(hub.slug)}/organisations">Organisations</a>
 ${membership && ['owner','admin'].includes(membership.role)?`<a href="/h/${e(hub.slug)}/admin">Hub admin</a>`:''}
 <button type="button" id="logout">Sign out</button></nav></header><main>${content}<p id="status" role="status" aria-live="polite"></p></main></body></html>`;
 }
