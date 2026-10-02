@@ -12,6 +12,7 @@ services:
       - ./db/local-init.sql:/docker-entrypoint-initdb.d/00-role.sql:ro
       - ./db/migrations/001-tenancy.sql:/docker-entrypoint-initdb.d/01-tenancy.sql:ro
       - ./db/migrations/002-access.sql:/docker-entrypoint-initdb.d/02-access.sql:ro
+      - ./db/migrations/003-consent.sql:/docker-entrypoint-initdb.d/03-consent.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U plinth_admin -d plinth"]
       interval: 5s
