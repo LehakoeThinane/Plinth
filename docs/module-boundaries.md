@@ -14,3 +14,9 @@ explicit account-resolution/session functions. These global identity operations
 precede tenant context, so they do not use the business TenantDatabase wrapper.
 Only cryptographically verified issuer/subject values reach account resolution.
 The authentication pool must never be supplied to business repositories.
+
+OrganisationRepository uses the business tenant-context wrapper with a verified
+global user. Its controlled functions are owned by plinth_identity_executor,
+a separate non-login/non-bypass role with explicit RLS policies. It neither
+resolves auth subjects nor grants hub roles, seats or entitlements. Membership
+mutations share an organisation revision lock and append an audit event atomically.

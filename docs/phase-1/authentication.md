@@ -81,7 +81,7 @@ Provider text is escaped, CSP permits only the platform's same-origin script,
 and browser credentials never enter localStorage/sessionStorage.
 
 `npm run dev` remains a health shell. There is no development token bypass or
-public sample authenticator. Apply migrations 006–008 after 005 and provision the
+public sample authenticator. Apply migrations 006–010 after 005 and provision the
 restricted auth role separately on an existing database. Local/CI bootstrap
 uses a development-only password; staging needs managed secrets/role provisioning.
 The full database suite additionally requires `TEST_AUTH_DATABASE_URL`.
@@ -93,6 +93,11 @@ Embedded tests model RLS/current-role privileges within one privileged session;
 role membership is checked there, while actual login-level SET ROLE rejection
 and concurrent independent provisioning connections require the full PostgreSQL
 suite. CI runs both suites.
+
+The `/h/{slug}/organisations` screen supports global organisation administration
+without requiring hub membership. Its database functions have a separate non-login
+identity executor; see [organisation setup](organisations.md). An organisation
+admin role never confers hub staff privileges, seats or entitlements.
 
 ## Hosted provider configuration
 

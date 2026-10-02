@@ -9,11 +9,15 @@ import { AuthRepository } from './db/auth-repository.js';
 import { createManagedAuthenticator } from './modules/identity/managed-auth.js';
 import { BrowserSessions } from './modules/identity/browser-sessions.js';
 import { HostedSignIn } from './modules/identity/hosted-sign-in.js';
+import { IdentityRepository } from './db/identity-repository.js';
+import { OrganisationRepository } from './db/organisation-repository.js';
+import { NoticeRepository } from './db/notice-repository.js';
 /** Composition root: infrastructure is injected and owned by the caller. */
 export function createApplication({pool,authenticate,browserSessions,hostedSignIn,cache=new MemoryAccessCache(),onError}) {
   if(!pool || typeof authenticate!=='function')throw Error('Database and verified authentication adapters are required');
   const database=new TenantDatabase(pool);
-  return createApi({authenticate,browserSessions,hostedSignIn,onError,publicHubs:new HubRepository(database),hubForPrincipal:principal=>new HubRepository(database,principal.userId),consentForPrincipal:principal=>new ConsentRepository(database,principal.userId),accessForPrincipal:principal=>
+  return createApi({authenticate,browserSessions,hostedSignIn,onError,noticeForPrincipal:principal=>new NoticeRepository(database,principal.userId),identityForPrincipal:principal=>new IdentityRepository(database,principal.userId),
+    organisationForPrincipal:principal=>new OrganisationRepository(database,principal.userId),publicHubs:new HubRepository(database),hubForPrincipal:principal=>new HubRepository(database,principal.userId),consentForPrincipal:principal=>new ConsentRepository(database,principal.userId),accessForPrincipal:principal=>
     new AccessService(new PostgresAccessRepository(database,principal.userId),cache)});
 }
 

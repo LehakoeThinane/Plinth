@@ -18,6 +18,8 @@ services:
       - ./db/migrations/006-auth-sessions.sql:/docker-entrypoint-initdb.d/06-auth.sql:ro
       - ./db/migrations/007-auth-function-owner.sql:/docker-entrypoint-initdb.d/07-auth-owner.sql:ro
       - ./db/migrations/008-login-attempts.sql:/docker-entrypoint-initdb.d/08-login-attempts.sql:ro
+      - ./db/migrations/009-organisation-admin.sql:/docker-entrypoint-initdb.d/09-organisation-admin.sql:ro
+      - ./db/migrations/010-purpose-publication.sql:/docker-entrypoint-initdb.d/10-purpose-publication.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U plinth_admin -d plinth"]
       interval: 5s
