@@ -83,7 +83,10 @@ Hub admins can publish versioned optional consent notices with immutable
 publication snapshots; see [notice publishing](docs/phase-1/notices.md).
 Hub logo upload/removal and current-logo serving use an injectable private storage
 adapter; see [branding setup](docs/phase-1/branding.md).
+Hub admins can verify custom-domain DNS ownership through a separate verifier
+role; see [domain setup](docs/phase-1/domains.md). TLS and origin activation remain
+deployment work.
 See [authentication setup](docs/phase-1/authentication.md).
 `npm run dev` remains a health shell; it does not enable test authentication or
-seed accounts. Apply migrations 003–011 in order to an
+seed accounts. Apply migrations 003–012 in order to an
 existing local database; fresh Compose volumes and CI apply them automatically.

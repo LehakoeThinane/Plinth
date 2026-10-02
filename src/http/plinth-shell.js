@@ -21,6 +21,16 @@ function formHandler(id,operation) {
   });
 }
 formHandler('branding',form=>request('branding','PUT',Object.fromEntries(new FormData(form))));
+formHandler('domain-request',async form=>{
+  const proof=await request('domains','POST',Object.fromEntries(new FormData(form)));
+  document.querySelector('#domain-proof').textContent='Add a TXT record at '+proof.recordName+' with value '+proof.recordValue+'. Expires '+proof.expiresAt+'. Copy this value now; refreshing hides it.';
+  const button=document.createElement('button');button.type='button';button.textContent='Check this DNS proof';
+  button.addEventListener('click',async()=>{button.disabled=true;try{await request('domains/verify','POST',{hostname:proof.hostname});window.location.reload();}catch(error){status.textContent=error.message;button.disabled=false;}});
+  document.querySelector('#domain-proof').append(' ',button);
+});
+for(const button of document.querySelectorAll('.verify-domain,.remove-domain'))button.addEventListener('click',async()=>{
+  button.disabled=true;try{await request(button.classList.contains('verify-domain')?'domains/verify':'domains',button.classList.contains('verify-domain')?'POST':'DELETE',{hostname:button.dataset.hostname});window.location.reload();}catch(error){status.textContent=error.message;button.disabled=false;}
+});
 formHandler('logo',async form=>{
   const file=form.elements.image.files[0];
   if(!file || file.size>2*1024*1024)throw new Error('Choose an image up to 2 MB.');

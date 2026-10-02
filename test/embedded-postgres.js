@@ -14,7 +14,7 @@ export async function createEmbeddedPools() {
     return {
       async connect() {
         let unlock;const previous=queue;queue=new Promise(resolve=>{unlock=resolve;});await previous;
-        try{await engine.exec(role==='plinth_app'?'SET ROLE plinth_app':role==='plinth_auth'?'SET ROLE plinth_auth':'RESET ROLE');}catch(error){unlock();throw error;}
+        try{await engine.exec(role==='admin'?'RESET ROLE':'SET ROLE '+role);}catch(error){unlock();throw error;}
         let released=false;
         return {
           async query(sql,params) {if(released)throw Error('Released client');return engine.query(sql,params);},
@@ -25,5 +25,5 @@ export async function createEmbeddedPools() {
       async end() {}
     };
   }
-  return {admin:pool('admin'),app:pool('plinth_app'),auth:pool('plinth_auth'),close:()=>engine.close()};
+  return {admin:pool('admin'),app:pool('plinth_app'),auth:pool('plinth_auth'),domains:pool('plinth_domain_verifier'),close:()=>engine.close()};
 }

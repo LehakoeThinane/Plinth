@@ -60,5 +60,10 @@ export async function auditPolicies(client) {
         OR NOT EXISTS(SELECT 1 FROM pg_policy p WHERE p.polrelid=c.oid AND p.polname='admin_update'
         AND p.polcmd='w' AND NOT p.polpermissive AND p.polqual IS NOT NULL AND p.polwithcheck IS NOT NULL))`);
   if(writes.rows.length)throw new Error('Unsafe notice publication policies');
+  const domains=await client.query(`SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname='tenancy' AND c.relname='domain_claims'
+      AND NOT EXISTS(SELECT 1 FROM pg_policy p WHERE p.polrelid=c.oid AND p.polname='admin_scope'
+        AND NOT p.polpermissive AND p.polqual IS NOT NULL AND p.polwithcheck IS NOT NULL)`);
+  if(domains.rows.length)throw new Error('Unsafe domain claim policies');
   return result.rows.length;
 }

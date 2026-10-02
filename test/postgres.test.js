@@ -19,6 +19,7 @@ import { request as httpRequest } from 'node:http';
 import { organisationChecks } from './organisation-workflows.js';
 import { noticeChecks } from './notice-workflows.js';
 import { logoChecks } from './logo-workflows.js';
+import { domainChecks } from './domain-workflows.js';
 import { LocalBrandingStore } from '../src/storage/local-branding.js';
 import { mkdir,mkdtemp,rm } from 'node:fs/promises';
 import { resolve,relative,isAbsolute } from 'node:path';
@@ -40,6 +41,10 @@ const embedded=embeddedMode?await (await import('./embedded-postgres.js')).creat
 const admin=embedded?.admin??new pg.Pool({connectionString:process.env.TEST_ADMIN_DATABASE_URL,connectionTimeoutMillis:10000});
 const app=embedded?.app??new pg.Pool({connectionString:process.env.DATABASE_URL,max:1,connectionTimeoutMillis:10000});
 const auth=embedded?.auth??new pg.Pool({connectionString:process.env.TEST_AUTH_DATABASE_URL,max:2,connectionTimeoutMillis:10000});
+const domainUrl=embeddedMode?null:new URL(process.env.TEST_DOMAIN_DATABASE_URL??process.env.DATABASE_URL);
+if(domainUrl)domainUrl.username='plinth_domain_verifier';
+const domains=embedded?.domains??new pg.Pool({connectionString:domainUrl.href,max:2,connectionTimeoutMillis:10000});
+const domainRecords=new Map();
 const authRepository=new AuthRepository(auth);
 const db=new TenantDatabase(app);
 const a=randomUUID(),b=randomUUID(),orgA=randomUUID(),orgB=randomUUID();
@@ -253,7 +258,7 @@ try {
   const provider=await providerFixture(issuer);
   const hostedSignIn=new HostedSignIn({configuration:provider.configuration,store:authRepository,sessions:browserSessions,
     resolveUser:(iss,sub)=>authRepository.resolveUser(iss,sub)});
-  server=createApplication({pool:app,cache,browserSessions,hostedSignIn,brandingStore,authenticate:async token=>token==='learner-a'?{userId:userA,expiresAt:new Date(Date.now()+600000)}:token==='learner-b'?{userId:userB,expiresAt:new Date(Date.now()+600000)}:managedAuthenticate(token)});
+  server=createApplication({pool:app,cache,browserSessions,hostedSignIn,brandingStore,domainVerificationPool:domains,resolveDomainTxt:async name=>domainRecords.get(name)??[],authenticate:async token=>token==='learner-a'?{userId:userA,expiresAt:new Date(Date.now()+600000)}:token==='learner-b'?{userId:userB,expiresAt:new Date(Date.now()+600000)}:managedAuthenticate(token)});
   server.listen(0,'127.0.0.1');await once(server,'listening');
   const base='http://127.0.0.1:'+server.address().port;
   const url=base+'/v1/hubs/'+a+'/lessons/'+lesson+'/access';
@@ -371,6 +376,7 @@ try {
   let sessionCookie,csrfToken;
   await noticeChecks({admin,app,db,hubId:createdHub,otherHub:a,userA,userB,check,embeddedMode,base,fetch,slug:createdSlug});
   await logoChecks({admin,app,db,hubId:createdHub,otherHub:a,userA,check,embeddedMode,base,fetch,slug:createdSlug,store:brandingStore});
+  await domainChecks({admin,app,domains,db,hubId:createdHub,otherHub:a,userA,userB,check,embeddedMode,base,fetch,slug:createdSlug,records:domainRecords});
   const browserHeaders={host:'learn-a.example',origin:'https://learn-a.example'};
   await check('browser session exchange requires a verified bearer and exact trusted origin',async()=>{
     const sessionUrl=base+'/v1/hubs/'+a+'/session';
@@ -494,6 +500,7 @@ try {
   if(server)await new Promise(resolve=>server.close(resolve));
   try {
   await admin.query('DELETE FROM identity.login_attempts WHERE hub_id=ANY($1::uuid[])',[testHubs]);
+  await admin.query('DELETE FROM tenancy.domain_claims WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM identity.auth_sessions WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM identity.org_invitations WHERE org_id=ANY($1::uuid[])',[testOrgs]);
   await admin.query('DELETE FROM identity.org_events WHERE org_id=ANY($1::uuid[])',[testOrgs]);
@@ -515,5 +522,5 @@ try {
   await admin.query('DELETE FROM tenancy.hub_profiles WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM tenancy.hubs WHERE id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM identity.organisations WHERE id=ANY($1::uuid[])',[testOrgs]);
-  } finally { await app.end();await auth.end();await admin.end();if(embedded)await embedded.close();const path=relative(storageRoot,storageDirectory);assert.ok(path&&!path.startsWith('..')&&!isAbsolute(path));await rm(storageDirectory,{recursive:true,force:true}); }
+  } finally { await app.end();await auth.end();await domains.end();await admin.end();if(embedded)await embedded.close();const path=relative(storageRoot,storageDirectory);assert.ok(path&&!path.startsWith('..')&&!isAbsolute(path));await rm(storageDirectory,{recursive:true,force:true}); }
 }

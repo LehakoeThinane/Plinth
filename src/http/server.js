@@ -29,7 +29,7 @@ async function readObject(req,maxBytes=4096) {
  * No default authenticator, development header override or public token issuer.
  * This endpoint returns an ACCESS DECISION only, never media/content.
  */
-export function createApi({authenticate,accessForPrincipal,consentForPrincipal,noticeForPrincipal,hubForPrincipal,identityForPrincipal,organisationForPrincipal,logoForPrincipal,brandingStore,publicHubs,browserSessions,hostedSignIn,onError=()=>{}}) {
+export function createApi({authenticate,accessForPrincipal,consentForPrincipal,noticeForPrincipal,hubForPrincipal,identityForPrincipal,organisationForPrincipal,logoForPrincipal,brandingStore,domainForPrincipal,publicHubs,browserSessions,hostedSignIn,onError=()=>{}}) {
   if(typeof authenticate!=='function'||typeof accessForPrincipal!=='function')throw Error('Verified authentication adapter required');
   return createServer(async(req,res)=>{
     const send=(status,body)=>{res.writeHead(status,{'content-type':'application/json','cache-control':'no-store'});res.end(JSON.stringify(body));};
@@ -76,7 +76,8 @@ export function createApi({authenticate,accessForPrincipal,consentForPrincipal,n
         const orgId=requestUrl.searchParams.get('org');
         const organisation=account && orgId?await organisationForPrincipal(principal).admin(hub.id,orgId):undefined;
         const publications=shell[2]==='admin'&&noticeForPrincipal?await noticeForPrincipal(principal).history(hub.id):[];
-        const html=renderApplicationShell({hub,view:shell[2],membership,account,organisation,publications,brandingEnabled:Boolean(brandingStore),consents:await consentForPrincipal(principal).list(hub.id),csrfToken:principal.csrfToken});
+        const domains=shell[2]==='admin'&&domainForPrincipal?await domainForPrincipal(principal).list(hub.id):undefined;
+        const html=renderApplicationShell({hub,view:shell[2],membership,account,organisation,publications,domains,brandingEnabled:Boolean(brandingStore),consents:await consentForPrincipal(principal).list(hub.id),csrfToken:principal.csrfToken});
         res.writeHead(200,htmlHeaders);return res.end(html);
       }
       const storefront=path.match(/^\/h\/([a-z0-9-]+)$/);
@@ -101,6 +102,8 @@ export function createApi({authenticate,accessForPrincipal,consentForPrincipal,n
           org[3]==='invitations'?(org[4]?req.method==='DELETE':req.method==='POST'):
           org[4]&&['PUT','DELETE'].includes(req.method):['GET','PUT'].includes(req.method):req.method==='POST');
       const readAccount=accountRoute && uuid.test(accountRoute[1]) && req.method==='GET';
+      const domain=path.match(/^\/v1\/hubs\/([0-9a-f-]{36})\/domains(?:\/(verify))?$/);
+      const domainRoute=domainForPrincipal&&domain&&uuid.test(domain[1])&&(domain[2]?req.method==='POST':['GET','POST','DELETE'].includes(req.method));
       const hubAction=path.match(/^\/v1\/hubs\/([^/]+)\/(join|membership|branding)$/);
       const logo=path.match(/^\/v1\/hubs\/([0-9a-f-]{36})\/branding\/logo$/);
       const logoRoute=logoForPrincipal && logo && uuid.test(logo[1]) && ['PUT','DELETE'].includes(req.method);
@@ -109,14 +112,20 @@ export function createApi({authenticate,accessForPrincipal,consentForPrincipal,n
       const createHub=hubForPrincipal && path==='/v1/hubs' && req.method==='POST';
       const hubRoute=hubForPrincipal && hubAction && uuid.test(hubAction[1]) &&
         req.method===({join:'POST',membership:'GET',branding:'PUT'})[hubAction[2]];
-      if(!logoRoute && !noticeRoute && !readAccount && !orgRoute && !sessionRoute && !createHub && !hubRoute && !consentRoute && (req.method!=='GET'||!match||!uuid.test(match[1])||!uuid.test(match[2])))return send(404,{error:'not_found'});
+      if(!domainRoute && !logoRoute && !noticeRoute && !readAccount && !orgRoute && !sessionRoute && !createHub && !hubRoute && !consentRoute && (req.method!=='GET'||!match||!uuid.test(match[1])||!uuid.test(match[2])))return send(404,{error:'not_found'});
       const bearer=req.headers.authorization?.match(/^Bearer ([^\s]+)$/)?.[1];
       if(req.headers.authorization && !bearer)return send(401,{error:'unauthenticated'});
       const principal=bearer?await authenticate(bearer):await browserSessions?.principal(req);
       if(!principal||!uuid.test(principal.userId??''))return send(401,{error:'unauthenticated'});
-      const targetHub=logoRoute?logo[1]:noticeRoute?notice[1]:readAccount?accountRoute[1]:orgRoute?org[1]:sessionRoute?sessionAction[1]:hubRoute?hubAction[1]:consentRoute?consent[1]:match?.[1];
+      const targetHub=domainRoute?domain[1]:logoRoute?logo[1]:noticeRoute?notice[1]:readAccount?accountRoute[1]:orgRoute?org[1]:sessionRoute?sessionAction[1]:hubRoute?hubAction[1]:consentRoute?consent[1]:match?.[1];
       if(principal.sessionHash && targetHub && principal.hubId!==targetHub)return send(404,{error:'not_found'});
       if(principal.sessionHash && !['GET','HEAD'].includes(req.method))browserSessions.checkMutation(req,principal);
+      if(domainRoute) {
+        const domains=domainForPrincipal(principal);
+        if(req.method==='GET')return send(200,await domains.list(targetHub));
+        const input=await readObject(req);
+        return send(200,await (domain[2]?domains.verify(targetHub,input):req.method==='DELETE'?domains.remove(targetHub,input):domains.request(targetHub,input)));
+      }
       if(logoRoute) {
         const logos=logoForPrincipal(principal);
         await logos.authorise(targetHub);
