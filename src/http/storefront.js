@@ -1,7 +1,7 @@
 export function escapeText(value) {
   return String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[char]);
 }
-export function renderStorefront(hub) {
+export function renderStorefront(hub,{signIn=false}={}) {
   const color=/^#[0-9a-f]{6}$/i.test(hub.primary_color)?hub.primary_color:'#2456A6';
   const font=({system:'system-ui, sans-serif',serif:'Georgia, serif',sans:'Arial, sans-serif'})[hub.font]??'system-ui, sans-serif';
   const logo=typeof hub.logo_path==='string' &&
@@ -20,7 +20,7 @@ header{background:white;border-top:6px solid ${color};border-bottom:1px solid #d
 .card{background:white;padding:28px;border:1px solid #dce2ea;border-radius:12px;margin-bottom:40px}
 h2{margin-top:0}footer{color:#44556b;font-size:.9rem}
 </style></head><body>
-<header><div class="wrap">${logo}<strong>${escapeText(hub.display_name)}</strong></div></header>
+<header><div class="wrap">${logo}<strong>${escapeText(hub.display_name)}</strong>${signIn?`<a href="/h/${escapeText(hub.slug)}/sign-in">Sign in</a><a href="/h/${escapeText(hub.slug)}/sign-in?view=join">Join hub</a>`:''}</div></header>
 <main class="wrap"><section class="intro"><p class="eyebrow">Learning &amp; knowledge exchange</p>
 <h1>${escapeText(hub.display_name)}</h1>
 <p class="description">${escapeText(hub.description||'A place to learn, connect, and exchange ideas.')}</p></section>

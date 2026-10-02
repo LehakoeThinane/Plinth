@@ -11,6 +11,8 @@ import { createApplication } from '../src/app.js';
 import { HubRepository } from '../src/db/hub-repository.js';
 import { AuthRepository } from '../src/db/auth-repository.js';
 import { BrowserSessions } from '../src/modules/identity/browser-sessions.js';
+import { HostedSignIn } from '../src/modules/identity/hosted-sign-in.js';
+import { providerFixture } from './oidc-fixture.js';
 import { createManagedAuthenticator } from '../src/modules/identity/managed-auth.js';
 import { generateKeyPair,exportJWK,createLocalJWKSet,SignJWT } from 'jose';
 import { request as httpRequest } from 'node:http';
@@ -238,11 +240,56 @@ try {
   const cache=new MemoryAccessCache();
   const authKeys=await generateKeyPair('ES256'),authJwk=await exportJWK(authKeys.publicKey);authJwk.kid='integration';
   const managedAuthenticate=createManagedAuthenticator({issuer,audience:'plinth-api',algorithms:['ES256'],keySet:createLocalJWKSet({keys:[authJwk]}),resolveUser:(iss,sub)=>authRepository.resolveUser(iss,sub)});
-  server=createApplication({pool:app,cache,browserSessions,authenticate:async token=>token==='learner-a'?{userId:userA,expiresAt:new Date(Date.now()+600000)}:token==='learner-b'?{userId:userB,expiresAt:new Date(Date.now()+600000)}:managedAuthenticate(token)});
+  const provider=await providerFixture(issuer);
+  const hostedSignIn=new HostedSignIn({configuration:provider.configuration,store:authRepository,sessions:browserSessions,
+    resolveUser:(iss,sub)=>authRepository.resolveUser(iss,sub)});
+  server=createApplication({pool:app,cache,browserSessions,hostedSignIn,authenticate:async token=>token==='learner-a'?{userId:userA,expiresAt:new Date(Date.now()+600000)}:token==='learner-b'?{userId:userB,expiresAt:new Date(Date.now()+600000)}:managedAuthenticate(token)});
   server.listen(0,'127.0.0.1');await once(server,'listening');
   const base='http://127.0.0.1:'+server.address().port;
   const url=base+'/v1/hubs/'+a+'/lessons/'+lesson+'/access';
   const headers={authorization:'Bearer learner-a'};
+  await check('login storage is function-only, validates expiry and consumes once under concurrent callbacks',async()=>{
+    for(const connection of [app,auth])await assert.rejects(connection.query('SELECT * FROM identity.login_attempts'),e=>e.code==='42501');
+    await assert.rejects(app.query('SELECT * FROM app.consume_login_attempt($1,$2)',['1'.repeat(64),'https://learn-a.example']),{code:'42501'});
+    for(const signature of ['app.store_login_attempt(text,uuid,text,jsonb,timestamptz)','app.consume_login_attempt(text,text)','app.prune_login_attempts()'])
+      assert.equal((await admin.query('SELECT pg_get_userbyid(proowner) AS owner FROM pg_proc WHERE oid=$1::regprocedure',[signature])).rows[0].owner,'plinth_auth_executor');
+    const hash='1'.repeat(64),attempt={hubId:a,origin:'https://learn-a.example',payload:{nonce:'test'},expiresAt:new Date(Date.now()+60000)};
+    await assert.rejects(authRepository.storeLogin(hash,{...attempt,expiresAt:new Date(Date.now()+720000)}),e=>e.code==='22023');
+    const skewHash='3'.repeat(64);
+    await authRepository.storeLogin(skewHash,{...attempt,expiresAt:new Date(Date.now()+630000)});
+    assert.equal((await admin.query("SELECT expires_at<=now()+interval '10 minutes' AS capped FROM identity.login_attempts WHERE state_hash=$1",[skewHash])).rows[0].capped,true);
+    assert.ok(await authRepository.consumeLogin(skewHash,attempt.origin));
+    await authRepository.storeLogin(hash,attempt);
+    assert.equal(await authRepository.consumeLogin(hash,'https://evil.example'),null);
+    const results=await Promise.all([authRepository.consumeLogin(hash,attempt.origin),authRepository.consumeLogin(hash,attempt.origin)]);
+    assert.equal(results.filter(Boolean).length,1);assert.equal(results.find(Boolean).hubId,a);
+  });
+  await check('policy audit rejects removal of the restrictive login-attempt boundary',async()=>{
+    const connection=await admin.connect();
+    try{await connection.query('BEGIN');await connection.query('DROP POLICY executor_scope ON identity.login_attempts');
+      await assert.rejects(auditPolicies(connection),/Unsafe login attempt policies/);
+    }finally{await connection.query('ROLLBACK');connection.release();}
+  });
+  await check('expired login attempts are rejected and pruned from PostgreSQL',async()=>{
+    const hash='2'.repeat(64);await authRepository.storeLogin(hash,{hubId:a,origin:'https://learn-a.example',payload:{},expiresAt:new Date(Date.now()+60000)});
+    await admin.query("UPDATE identity.login_attempts SET expires_at=now()-interval '1 second' WHERE state_hash=$1",[hash]);
+    assert.equal(await authRepository.consumeLogin(hash,'https://learn-a.example'),null);await authRepository.pruneLogins();
+    assert.equal((await admin.query('SELECT * FROM identity.login_attempts WHERE state_hash=$1',[hash])).rows.length,0);
+  });
+  await check('hosted HTTP sign-in redirects, verifies provider response and rejects callback replay',async()=>{
+    const host={host:'learn-a.example'};
+    const anonymous=await fetch(base+'/h/test-'+a+'/member',{headers:host});assert.equal(anonymous.status,303);
+    assert.equal(anonymous.headers.get('location'),'/h/test-'+a+'/sign-in?view=member');
+    const start=await fetch(base+'/h/test-'+a+'/sign-in?view=member',{headers:host});assert.equal(start.status,303);
+    const callback=provider.authorize(start.headers.get('location')),cookie=start.headers.get('set-cookie').split(';')[0];
+    const route=base+callback.pathname+callback.search;
+    const response=await fetch(route,{headers:{...host,cookie}});assert.equal(response.status,303);
+    assert.equal(response.headers.get('location'),'/h/test-'+a+'/member');
+    const session=response.headers.get('set-cookie').match(/__Host-plinth-session=[0-9a-f]{64}/)[0];
+    const member=await fetch(base+response.headers.get('location'),{headers:{...host,cookie:session}});assert.equal(member.status,200);
+    const replay=await fetch(route,{headers:{...host,cookie}});assert.equal(replay.status,401);assert.match(replay.headers.get('set-cookie'),/Max-Age=0/);
+    assert.equal((await admin.query('SELECT * FROM identity.login_attempts WHERE hub_id=$1',[a])).rows.length,0);
+  });
   await check('signed managed token resolves the global account through the constrained auth role',async()=>{
     const jwt=await new SignJWT({userId:userB,role:'owner'}).setProtectedHeader({alg:'ES256',kid:'integration',typ:'at+jwt'})
       .setIssuer(issuer).setAudience('plinth-api').setSubject('subject-a').setIssuedAt().setExpirationTime('10m').sign(authKeys.privateKey);
@@ -345,6 +392,17 @@ try {
     assert.equal(adminPage.status,200);const html=await adminPage.text();assert.match(html,/Hub branding/);assert.ok(!html.includes('<script>alert'));
     const asset=await fetch(base+'/assets/plinth-shell.js');assert.equal(asset.status,200);assert.match(asset.headers.get('content-type'),/javascript/);
   });
+  await check('hub-creation screen accepts global accounts without membership and creation requires CSRF',async()=>{
+    const scoped={...browserHeaders,cookie:sessionCookie};
+    await admin.query("UPDATE tenancy.memberships SET status='ended' WHERE hub_id=$1 AND user_id=$2",[a,userA]);
+    try {
+      const page=await fetch(base+'/h/test-'+a+'/create-hub',{headers:scoped});assert.equal(page.status,200);assert.match(await page.text(),/id="create-hub"/);
+      const body=JSON.stringify({slug:'browser-'+randomUUID(),displayName:'Browser Hub'});
+      assert.equal((await fetch(base+'/v1/hubs',{method:'POST',headers:scoped,body})).status,403);
+      const response=await fetch(base+'/v1/hubs',{method:'POST',headers:{...scoped,'x-csrf-token':csrfToken},body});assert.equal(response.status,201);
+      const created=await response.json();testHubs.push(created.id);assert.deepEqual(await hubsA.membership(created.id),{role:'owner',status:'active'});
+    }finally{await admin.query("UPDATE tenancy.memberships SET status='active' WHERE hub_id=$1 AND user_id=$2",[a,userA]);}
+  });
   await check('logout deletes persistent session so a copied old cookie fails',async()=>{
     const scoped={...browserHeaders,cookie:sessionCookie,'x-csrf-token':csrfToken};
     const logout=await fetch(base+'/v1/hubs/'+a+'/session',{method:'DELETE',headers:scoped});
@@ -389,6 +447,7 @@ try {
 } finally {
   if(server)await new Promise(resolve=>server.close(resolve));
   try {
+  await admin.query('DELETE FROM identity.login_attempts WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM identity.auth_sessions WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM compliance.consent_events WHERE hub_id=ANY($1::uuid[])',[[a,b]]);
   await admin.query('DELETE FROM compliance.consents WHERE hub_id=ANY($1::uuid[])',[[a,b]]);

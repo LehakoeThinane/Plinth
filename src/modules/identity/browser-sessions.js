@@ -25,6 +25,14 @@ export class BrowserSessions {
   async establish(req,hubId,principal) {
     const origin=await this.#origin(req,hubId);
     if(req.headers.origin!==origin)throw Object.assign(new Error('Origin rejected'),{status:403});
+    return this.#issue(req,hubId,principal,origin);
+  }
+  // Called only after the hosted OIDC service consumes and verifies its attempt.
+  async establishFromCallback(req,hubId,principal) {
+    return this.#issue(req,hubId,principal,await this.#origin(req,hubId));
+  }
+  async trustedOrigin(req,hubId) { return this.#origin(req,hubId); }
+  async #issue(req,hubId,principal,origin) {
     const expiry=Math.min(new Date(principal.expiresAt).getTime(),this.#now()+60*60*1000);
     if(!Number.isFinite(expiry)||expiry<=this.#now())throw failure();
     const token=randomBytes(32).toString('hex'),csrfToken=randomBytes(32).toString('hex');
