@@ -12,3 +12,4 @@ coverage/
 *.tfvars
 backend.hcl
 .tools/
+.local/

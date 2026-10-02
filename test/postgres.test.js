@@ -18,6 +18,10 @@ import { generateKeyPair,exportJWK,createLocalJWKSet,SignJWT } from 'jose';
 import { request as httpRequest } from 'node:http';
 import { organisationChecks } from './organisation-workflows.js';
 import { noticeChecks } from './notice-workflows.js';
+import { logoChecks } from './logo-workflows.js';
+import { LocalBrandingStore } from '../src/storage/local-branding.js';
+import { mkdir,mkdtemp,rm } from 'node:fs/promises';
+import { resolve,relative,isAbsolute } from 'node:path';
 // Native HTTP preserves an explicit Host for reverse-proxy origin tests; Fetch
 // implementations may replace that forbidden browser header with localhost.
 function fetch(url,options={}) {
@@ -33,9 +37,9 @@ function fetch(url,options={}) {
 const embeddedMode=process.env.PLINTH_EMBEDDED_TEST==='1';
 if (!embeddedMode && (!process.env.DATABASE_URL || !process.env.TEST_ADMIN_DATABASE_URL || !process.env.TEST_AUTH_DATABASE_URL)) throw Error('Real PostgreSQL application/admin/auth URLs are required; integration tests cannot be skipped.');
 const embedded=embeddedMode?await (await import('./embedded-postgres.js')).createEmbeddedPools():null;
-const admin=embedded?.admin??new pg.Pool({connectionString:process.env.TEST_ADMIN_DATABASE_URL,connectionTimeoutMillis:2000});
-const app=embedded?.app??new pg.Pool({connectionString:process.env.DATABASE_URL,max:1,connectionTimeoutMillis:2000});
-const auth=embedded?.auth??new pg.Pool({connectionString:process.env.TEST_AUTH_DATABASE_URL,max:2,connectionTimeoutMillis:5000});
+const admin=embedded?.admin??new pg.Pool({connectionString:process.env.TEST_ADMIN_DATABASE_URL,connectionTimeoutMillis:10000});
+const app=embedded?.app??new pg.Pool({connectionString:process.env.DATABASE_URL,max:1,connectionTimeoutMillis:10000});
+const auth=embedded?.auth??new pg.Pool({connectionString:process.env.TEST_AUTH_DATABASE_URL,max:2,connectionTimeoutMillis:10000});
 const authRepository=new AuthRepository(auth);
 const db=new TenantDatabase(app);
 const a=randomUUID(),b=randomUUID(),orgA=randomUUID(),orgB=randomUUID();
@@ -51,6 +55,9 @@ const browserSessions=new BrowserSessions({store:authRepository,originForHub:asy
 const hostname='learn-'+a+'.example.com';
 const issuer='https://identity.example/'+a;
 let server;
+const storageRoot=resolve('.local');await mkdir(storageRoot,{recursive:true});
+const storageDirectory=await mkdtemp(resolve(storageRoot,'logo-integration-'));
+const brandingStore=new LocalBrandingStore({root:storageDirectory});
 let count=0;
 async function check(name,fn){await fn();count++;console.log('PASS '+name);}
 try {
@@ -246,7 +253,7 @@ try {
   const provider=await providerFixture(issuer);
   const hostedSignIn=new HostedSignIn({configuration:provider.configuration,store:authRepository,sessions:browserSessions,
     resolveUser:(iss,sub)=>authRepository.resolveUser(iss,sub)});
-  server=createApplication({pool:app,cache,browserSessions,hostedSignIn,authenticate:async token=>token==='learner-a'?{userId:userA,expiresAt:new Date(Date.now()+600000)}:token==='learner-b'?{userId:userB,expiresAt:new Date(Date.now()+600000)}:managedAuthenticate(token)});
+  server=createApplication({pool:app,cache,browserSessions,hostedSignIn,brandingStore,authenticate:async token=>token==='learner-a'?{userId:userA,expiresAt:new Date(Date.now()+600000)}:token==='learner-b'?{userId:userB,expiresAt:new Date(Date.now()+600000)}:managedAuthenticate(token)});
   server.listen(0,'127.0.0.1');await once(server,'listening');
   const base='http://127.0.0.1:'+server.address().port;
   const url=base+'/v1/hubs/'+a+'/lessons/'+lesson+'/access';
@@ -363,6 +370,7 @@ try {
   });
   let sessionCookie,csrfToken;
   await noticeChecks({admin,app,db,hubId:createdHub,otherHub:a,userA,userB,check,embeddedMode,base,fetch,slug:createdSlug});
+  await logoChecks({admin,app,db,hubId:createdHub,otherHub:a,userA,check,embeddedMode,base,fetch,slug:createdSlug,store:brandingStore});
   const browserHeaders={host:'learn-a.example',origin:'https://learn-a.example'};
   await check('browser session exchange requires a verified bearer and exact trusted origin',async()=>{
     const sessionUrl=base+'/v1/hubs/'+a+'/session';
@@ -507,5 +515,5 @@ try {
   await admin.query('DELETE FROM tenancy.hub_profiles WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM tenancy.hubs WHERE id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM identity.organisations WHERE id=ANY($1::uuid[])',[testOrgs]);
-  } finally { await app.end();await auth.end();await admin.end();if(embedded)await embedded.close(); }
+  } finally { await app.end();await auth.end();await admin.end();if(embedded)await embedded.close();const path=relative(storageRoot,storageDirectory);assert.ok(path&&!path.startsWith('..')&&!isAbsolute(path));await rm(storageDirectory,{recursive:true,force:true}); }
 }

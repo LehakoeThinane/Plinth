@@ -1,6 +1,6 @@
 import { escapeText as e } from './storefront.js';
 import { renderOrganisations } from './organisation-shell.js';
-export function renderApplicationShell({hub,view,membership,consents,csrfToken,account,organisation,publications=[]}) {
+export function renderApplicationShell({hub,view,membership,consents,csrfToken,account,organisation,publications=[],brandingEnabled=false}) {
   const choices=consents.map(c=>`<label class="choice"><input type="checkbox" name="${e(c.purpose)}" data-purpose="${e(c.purpose)}" data-version="${e(c.notice_version)}"${c.granted?' checked':''}>
     <span><strong>${e(c.purpose.replaceAll('_',' '))}</strong><br>${e(c.notice_text)}</span></label>`).join('');
   const consentForm=`<form id="consents"><h2>Your consent choices</h2><p>These choices apply only to ${e(hub.display_name)}. You can withdraw them here.</p>${choices||'<p>No optional consent choices are available.</p>'}${choices?'<button type="submit">Save choices</button>':''}</form>`;
@@ -21,7 +21,7 @@ export function renderApplicationShell({hub,view,membership,consents,csrfToken,a
     <label>Description<textarea name="description" maxlength="2000">${e(hub.description)}</textarea></label>
     <label>Primary colour<input type="color" name="primaryColor" value="${e(hub.primary_color)}"></label>
     <label>Font<select name="font">${['system','serif','sans'].map(f=>`<option value="${f}"${hub.font===f?' selected':''}>${f}</option>`).join('')}</select></label>
-    <button type="submit">Save branding</button></form>${noticeAdmin}`:
+    <button type="submit">Save branding</button></form>${brandingEnabled?`<form id="logo"><h2>Hub logo</h2>${hub.logo_path?`<img src="${e(hub.logo_path)}" alt="Current hub logo" width="128">`:''}<p>Your logo appears publicly on the hub. Choose a static PNG, JPEG or WebP up to 2 MB.</p><label>Logo image<input type="file" name="image" accept="image/png,image/jpeg,image/webp" required></label><button>Upload logo</button> <button type="button" id="remove-logo">Remove logo</button></form>`:''}${noticeAdmin}`:
     view==='join'?`<h1>Join ${e(hub.display_name)}</h1><p>Join this learning hub with your account.</p>
     <form id="join"><h2>Optional consent</h2><p>Joining does not require optional consent.</p>${choices}<button type="submit">Join hub</button></form>`:
     `<h1>Your member area</h1><p>Welcome to ${e(hub.display_name)}.</p><section><h2>Your learning</h2><p>Your courses will appear here as they become available.</p></section>${consentForm}`;

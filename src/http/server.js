@@ -3,6 +3,12 @@ import { renderStorefront } from './storefront.js';
 import { readFile } from 'node:fs/promises';
 import { renderApplicationShell } from './application-shell.js';
 import { clearLoginCookie } from '../modules/identity/hosted-sign-in.js';
+import { maxLogoBytes } from '../modules/tenancy/logo-images.js';
+async function readBinary(req) {
+  const chunks=[];let size=0;
+  for await(const chunk of req){size+=chunk.length;if(size>maxLogoBytes)throw Object.assign(new Error('Body too large'),{status:413});chunks.push(chunk);}
+  return Buffer.concat(chunks);
+}
 const htmlHeaders={'content-type':'text/html; charset=utf-8','cache-control':'no-store',
   'content-security-policy':"default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
   'x-content-type-options':'nosniff','referrer-policy':'strict-origin-when-cross-origin'};
@@ -23,13 +29,21 @@ async function readObject(req,maxBytes=4096) {
  * No default authenticator, development header override or public token issuer.
  * This endpoint returns an ACCESS DECISION only, never media/content.
  */
-export function createApi({authenticate,accessForPrincipal,consentForPrincipal,noticeForPrincipal,hubForPrincipal,identityForPrincipal,organisationForPrincipal,publicHubs,browserSessions,hostedSignIn,onError=()=>{}}) {
+export function createApi({authenticate,accessForPrincipal,consentForPrincipal,noticeForPrincipal,hubForPrincipal,identityForPrincipal,organisationForPrincipal,logoForPrincipal,brandingStore,publicHubs,browserSessions,hostedSignIn,onError=()=>{}}) {
   if(typeof authenticate!=='function'||typeof accessForPrincipal!=='function')throw Error('Verified authentication adapter required');
   return createServer(async(req,res)=>{
     const send=(status,body)=>{res.writeHead(status,{'content-type':'application/json','cache-control':'no-store'});res.end(JSON.stringify(body));};
     try{
       const requestUrl=new URL(req.url,'http://localhost');
       const path=requestUrl.pathname;
+      const asset=path.match(/^\/assets\/hubs\/([0-9a-f-]{36})\/branding\/([0-9a-f-]{36})\.webp$/);
+      if(brandingStore && publicHubs && req.method==='GET' && asset && uuid.test(asset[1]) && uuid.test(asset[2])) {
+        if(!await publicHubs.isPublishedLogo(asset[1],asset[2]+'.webp'))return send(404,{error:'not_found'});
+        const bytes=await brandingStore.read(asset[1],asset[2]);
+        if(!bytes)return send(404,{error:'not_found'});
+        res.writeHead(200,{'content-type':'image/webp','cache-control':'no-store','x-content-type-options':'nosniff','cross-origin-resource-policy':'same-origin'});
+        return res.end(bytes);
+      }
       const signIn=path.match(/^\/h\/([a-z0-9-]+)\/sign-in$/);
       if(hostedSignIn && req.method==='GET' && (signIn||path==='/auth/callback')) {
         let result;
@@ -62,7 +76,7 @@ export function createApi({authenticate,accessForPrincipal,consentForPrincipal,n
         const orgId=requestUrl.searchParams.get('org');
         const organisation=account && orgId?await organisationForPrincipal(principal).admin(hub.id,orgId):undefined;
         const publications=shell[2]==='admin'&&noticeForPrincipal?await noticeForPrincipal(principal).history(hub.id):[];
-        const html=renderApplicationShell({hub,view:shell[2],membership,account,organisation,publications,consents:await consentForPrincipal(principal).list(hub.id),csrfToken:principal.csrfToken});
+        const html=renderApplicationShell({hub,view:shell[2],membership,account,organisation,publications,brandingEnabled:Boolean(brandingStore),consents:await consentForPrincipal(principal).list(hub.id),csrfToken:principal.csrfToken});
         res.writeHead(200,htmlHeaders);return res.end(html);
       }
       const storefront=path.match(/^\/h\/([a-z0-9-]+)$/);
@@ -88,19 +102,26 @@ export function createApi({authenticate,accessForPrincipal,consentForPrincipal,n
           org[4]&&['PUT','DELETE'].includes(req.method):['GET','PUT'].includes(req.method):req.method==='POST');
       const readAccount=accountRoute && uuid.test(accountRoute[1]) && req.method==='GET';
       const hubAction=path.match(/^\/v1\/hubs\/([^/]+)\/(join|membership|branding)$/);
+      const logo=path.match(/^\/v1\/hubs\/([0-9a-f-]{36})\/branding\/logo$/);
+      const logoRoute=logoForPrincipal && logo && uuid.test(logo[1]) && ['PUT','DELETE'].includes(req.method);
       const sessionAction=path.match(/^\/v1\/hubs\/([^/]+)\/session$/);
       const sessionRoute=browserSessions && sessionAction && uuid.test(sessionAction[1]) && ['POST','DELETE'].includes(req.method);
       const createHub=hubForPrincipal && path==='/v1/hubs' && req.method==='POST';
       const hubRoute=hubForPrincipal && hubAction && uuid.test(hubAction[1]) &&
         req.method===({join:'POST',membership:'GET',branding:'PUT'})[hubAction[2]];
-      if(!noticeRoute && !readAccount && !orgRoute && !sessionRoute && !createHub && !hubRoute && !consentRoute && (req.method!=='GET'||!match||!uuid.test(match[1])||!uuid.test(match[2])))return send(404,{error:'not_found'});
+      if(!logoRoute && !noticeRoute && !readAccount && !orgRoute && !sessionRoute && !createHub && !hubRoute && !consentRoute && (req.method!=='GET'||!match||!uuid.test(match[1])||!uuid.test(match[2])))return send(404,{error:'not_found'});
       const bearer=req.headers.authorization?.match(/^Bearer ([^\s]+)$/)?.[1];
       if(req.headers.authorization && !bearer)return send(401,{error:'unauthenticated'});
       const principal=bearer?await authenticate(bearer):await browserSessions?.principal(req);
       if(!principal||!uuid.test(principal.userId??''))return send(401,{error:'unauthenticated'});
-      const targetHub=noticeRoute?notice[1]:readAccount?accountRoute[1]:orgRoute?org[1]:sessionRoute?sessionAction[1]:hubRoute?hubAction[1]:consentRoute?consent[1]:match?.[1];
+      const targetHub=logoRoute?logo[1]:noticeRoute?notice[1]:readAccount?accountRoute[1]:orgRoute?org[1]:sessionRoute?sessionAction[1]:hubRoute?hubAction[1]:consentRoute?consent[1]:match?.[1];
       if(principal.sessionHash && targetHub && principal.hubId!==targetHub)return send(404,{error:'not_found'});
       if(principal.sessionHash && !['GET','HEAD'].includes(req.method))browserSessions.checkMutation(req,principal);
+      if(logoRoute) {
+        const logos=logoForPrincipal(principal);
+        await logos.authorise(targetHub);
+        return send(200,req.method==='DELETE'?await logos.remove(targetHub):await logos.upload(targetHub,await readBinary(req),req.headers['content-type']));
+      }
       if(noticeRoute) {
         const repository=noticeForPrincipal(principal);
         return send(200,req.method==='GET'?{publications:await repository.history(targetHub)}:await repository.publish(targetHub,await readObject(req,65536)));
@@ -149,7 +170,7 @@ export function createApi({authenticate,accessForPrincipal,consentForPrincipal,n
       if(result.decision==='not_found')return send(404,{error:'not_found'});
       return send(200,result);
     }catch(error){
-      if([400,401,403,404,409,413].includes(error.status))return send(error.status,{error:({400:'invalid_request',401:'unauthenticated',403:'forbidden',404:'not_found',409:'conflict',413:'body_too_large'})[error.status]});
+      if([400,401,403,404,409,413,415].includes(error.status))return send(error.status,{error:({400:'invalid_request',401:'unauthenticated',403:'forbidden',404:'not_found',409:'conflict',413:'body_too_large',415:'unsupported_image'})[error.status]});
       onError(error);return send(500,{error:'internal_error'});
     }
   });

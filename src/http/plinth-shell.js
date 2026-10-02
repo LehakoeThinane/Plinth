@@ -21,6 +21,16 @@ function formHandler(id,operation) {
   });
 }
 formHandler('branding',form=>request('branding','PUT',Object.fromEntries(new FormData(form))));
+formHandler('logo',async form=>{
+  const file=form.elements.image.files[0];
+  if(!file || file.size>2*1024*1024)throw new Error('Choose an image up to 2 MB.');
+  const response=await fetch('/v1/hubs/'+hubId+'/branding/logo',{method:'PUT',credentials:'same-origin',headers:{'content-type':file.type,'x-csrf-token':csrf},body:file});
+  if(!response.ok)throw new Error('The logo could not be saved. Choose a static PNG, JPEG or WebP up to 2 MB.');
+  window.location.reload();
+});
+document.querySelector('#remove-logo')?.addEventListener('click',async()=>{
+  try{await request('branding/logo','DELETE');window.location.reload();}catch(error){status.textContent=error.message;}
+});
 formHandler('create-hub',async form=>{
   const response=await fetch('/v1/hubs',{method:'POST',credentials:'same-origin',
     headers:{'content-type':'application/json','x-csrf-token':csrf},body:JSON.stringify(Object.fromEntries(new FormData(form)))});
