@@ -8,16 +8,18 @@
     "test:tenant": "node --test test/tenant.test.js",
     "test:http": "node --test test/http.test.js",
     "test:auth": "node --test test/auth.test.js",
+    "test:hosted-auth": "node --test test/hosted-auth.test.js",
     "test:db:embedded": "node test/run-embedded.js",
     "dev": "node scripts/dev.js",
     "test:architecture": "node --test test/architecture.test.js",
-    "verify": "npm test && npm run test:tenant && npm run test:http && npm run test:auth && npm run test:architecture && npm run test:db:embedded"
+    "verify": "npm test && npm run test:tenant && npm run test:http && npm run test:auth && npm run test:hosted-auth && npm run test:architecture && npm run test:db:embedded"
   },
   "engines": {
     "node": ">=22"
   },
   "dependencies": {
     "jose": "6.2.12",
+    "openid-client": "6.8.8",
     "pg": "8.16.3"
   },
   "devDependencies": {

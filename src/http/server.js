@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 import { renderStorefront } from './storefront.js';
 import { readFile } from 'node:fs/promises';
 import { renderApplicationShell } from './application-shell.js';
+import { clearLoginCookie } from '../modules/identity/hosted-sign-in.js';
 const htmlHeaders={'content-type':'text/html; charset=utf-8','cache-control':'no-store',
   'content-security-policy':"default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
   'x-content-type-options':'nosniff','referrer-policy':'strict-origin-when-cross-origin'};
@@ -22,34 +23,47 @@ async function readObject(req) {
  * No default authenticator, development header override or public token issuer.
  * This endpoint returns an ACCESS DECISION only, never media/content.
  */
-export function createApi({authenticate,accessForPrincipal,consentForPrincipal,hubForPrincipal,publicHubs,browserSessions,onError=()=>{}}) {
+export function createApi({authenticate,accessForPrincipal,consentForPrincipal,hubForPrincipal,publicHubs,browserSessions,hostedSignIn,onError=()=>{}}) {
   if(typeof authenticate!=='function'||typeof accessForPrincipal!=='function')throw Error('Verified authentication adapter required');
   return createServer(async(req,res)=>{
     const send=(status,body)=>{res.writeHead(status,{'content-type':'application/json','cache-control':'no-store'});res.end(JSON.stringify(body));};
     try{
       const requestUrl=new URL(req.url,'http://localhost');
       const path=requestUrl.pathname;
+      const signIn=path.match(/^\/h\/([a-z0-9-]+)\/sign-in$/);
+      if(hostedSignIn && req.method==='GET' && (signIn||path==='/auth/callback')) {
+        let result;
+        try {
+          result=signIn?await hostedSignIn.begin(req,await publicHubs.resolve({slug:signIn[1]}),requestUrl.searchParams.get('view')??'member'):
+            await hostedSignIn.complete(req,requestUrl);
+        }catch(error){if(!signIn)res.setHeader('set-cookie',clearLoginCookie);throw error;}
+        res.writeHead(303,{'location':result.location,'set-cookie':result.cookies,'cache-control':'no-store','referrer-policy':'no-referrer'});
+        return res.end();
+      }
       if(req.method==='GET' && path==='/assets/plinth-shell.js') {
         const script=await readFile(new URL('./plinth-shell.js',import.meta.url),'utf8');
         res.writeHead(200,{'content-type':'text/javascript; charset=utf-8','x-content-type-options':'nosniff','cache-control':'no-cache'});
         return res.end(script);
       }
-      const shell=path.match(/^\/h\/([a-z0-9-]+)\/(member|admin|join)$/);
+      const shell=path.match(/^\/h\/([a-z0-9-]+)\/(member|admin|join|create-hub)$/);
       if(browserSessions && publicHubs && hubForPrincipal && consentForPrincipal && req.method==='GET' && shell) {
         const hub=await publicHubs.resolve({slug:shell[1]});
         const principal=await browserSessions.principal(req);
-        if(!principal)return send(401,{error:'unauthenticated'});
+        if(!principal) {
+          if(hostedSignIn){res.writeHead(303,{'location':'/h/'+hub.slug+'/sign-in?view='+shell[2],'cache-control':'no-store'});return res.end();}
+          return send(401,{error:'unauthenticated'});
+        }
         if(principal.hubId!==hub.id)return send(404,{error:'not_found'});
         let membership;
         try{membership=await hubForPrincipal(principal).membership(hub.id);}
-        catch(error){if(error.status!==404||shell[2]!=='join')throw error;}
+        catch(error){if(error.status!==404||!['join','create-hub'].includes(shell[2]))throw error;}
         if(shell[2]==='admin' && !['owner','admin'].includes(membership?.role))return send(404,{error:'not_found'});
         const html=renderApplicationShell({hub,view:shell[2],membership,consents:await consentForPrincipal(principal).list(hub.id),csrfToken:principal.csrfToken});
         res.writeHead(200,htmlHeaders);return res.end(html);
       }
       const storefront=path.match(/^\/h\/([a-z0-9-]+)$/);
       if(publicHubs && req.method==='GET' && storefront) {
-        const html=renderStorefront(await publicHubs.resolve({slug:storefront[1]}));
+        const html=renderStorefront(await publicHubs.resolve({slug:storefront[1]}),{signIn:Boolean(hostedSignIn)});
         res.writeHead(200,htmlHeaders);
         return res.end(html);
       }

@@ -110,12 +110,37 @@ concurrent account provisioning, cookie/host isolation, CSRF, shells and logout.
 Provider sign-in, HTTPS transport and browser/device UAT are not yet verified.
 See [authentication setup](authentication.md) for configuration and remaining work.
 
+## Fifth implemented slice: hosted OIDC sign-in and hub-creation screen
+
+The configured application now redirects users to a managed OIDC provider with
+authorization code/S256 PKCE, state and nonce. Migration 008 stores ten-minute
+login attempts behind function-only auth permissions and forced RLS. The callback
+requires the matching host-only login cookie, consumes the attempt atomically,
+verifies the provider response and ID-token signature/issuer/audience/nonce,
+then resolves the enabled issuer/subject and establishes a bounded session.
+Destinations are fixed to hub application screens; arbitrary redirect URLs fail.
+No access/refresh/ID token is persisted or sent to browser JavaScript.
+
+Public storefronts expose sign-in/join links when hosted login is configured.
+Unauthenticated application screens redirect to hosted login. The hub-creation
+screen accepts global accounts without requiring membership in the current hub,
+and uses the CSRF-protected existing atomic creation API. A newly created hub
+needs its own approved origin/session before administration.
+
+Validation: `npm run verify` passed 107 checks; full PostgreSQL 17 passed 57 checks.
+The provider fixture exercises the actual OIDC library, token endpoint and JWKS
+validation, including forged signatures, wrong issuer/audience/nonce, expiry,
+PKCE failure and replay. Database tests cover concurrent one-use consumption,
+expiry cleanup, restricted roles, HTTP callbacks and hub creation without membership.
+This is fixture validation; a real provider tenant, TLS transport and device UAT
+are still outstanding. Existing volumes need migration 008 after 007.
+
 ## Remaining Phase 1 scope
 
-Managed provider selection/configuration and hosted authorization-code/PKCE
-sign-in/callback integration; explicit account-linking workflow; organisation
+Managed provider selection/configuration and real hosted sign-in verification;
+explicit account-linking workflow; organisation
 provisioning/admin workflows; domain ownership verification, TLS/custom-host
-routing and browser UAT; branding asset upload/serving; hub-creation UI.
+routing and browser UAT; branding asset upload/serving.
 Purpose-notice publication currently requires an administrative migration
 or controlled database operation; its provider-admin interface is not built.
 
@@ -123,5 +148,5 @@ The existing identity/membership tables are a starting point, not acceptance of
 the full global account model. Auth-provider setup requires an actual tenant and
 configuration. No production payment/video integration has been introduced.
 
-Next implementation slice: hosted managed sign-in integration and hub-creation UI.
+Next implementation slice: organisation provisioning/admin workflows.
 Overall Phase 0 external gates remain open.

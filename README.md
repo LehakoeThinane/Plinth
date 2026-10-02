@@ -74,8 +74,9 @@ See [Phase 1 status](docs/phase-1/status.md) for implemented consent, global ide
 organisation/SSO configuration, hub creation/joining, resolution and safe branding.
 The configured application renders a public storefront shell at `/h/{slug}`.
 The managed JWT adapter, persistent host/hub-scoped sessions and authenticated
-join/member/admin shells are implemented; real provider configuration and hosted
-sign-in integration remain. See [authentication setup](docs/phase-1/authentication.md).
+join/member/admin shells, hosted OIDC code/PKCE callback and hub-creation screen
+are implemented. Real provider configuration and sign-in UAT remain.
+See [authentication setup](docs/phase-1/authentication.md).
 `npm run dev` remains a health shell; it does not enable test authentication or
-seed accounts. Apply migrations 003–007 in order to an
+seed accounts. Apply migrations 003–008 in order to an
 existing local database; fresh Compose volumes and CI apply them automatically.

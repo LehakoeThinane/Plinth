@@ -20,4 +20,13 @@ export class AuthRepository {
   }
   async delete(hash) { await this.#pool.query('SELECT app.end_auth_session($1)',[hash]); }
   async prune() { await this.#pool.query('SELECT app.prune_auth_sessions()'); }
+  async storeLogin(hash,attempt) {
+    await this.#pool.query('SELECT app.store_login_attempt($1,$2,$3,$4,$5)',
+      [hash,attempt.hubId,attempt.origin,attempt.payload,attempt.expiresAt]);
+  }
+  async consumeLogin(hash,origin) {
+    const row=(await this.#pool.query('SELECT * FROM app.consume_login_attempt($1,$2)',[hash,origin])).rows[0];
+    return row?{hubId:row.hub_id,origin:row.origin,payload:row.payload}:null;
+  }
+  async pruneLogins() { await this.#pool.query('SELECT app.prune_login_attempts()'); }
 }

@@ -21,6 +21,12 @@ function formHandler(id,operation) {
   });
 }
 formHandler('branding',form=>request('branding','PUT',Object.fromEntries(new FormData(form))));
+formHandler('create-hub',async form=>{
+  const response=await fetch('/v1/hubs',{method:'POST',credentials:'same-origin',
+    headers:{'content-type':'application/json','x-csrf-token':csrf},body:JSON.stringify(Object.fromEntries(new FormData(form)))});
+  if(!response.ok)throw new Error(response.status===409?'That hub address is already taken.':'The hub could not be created. Please try again.');
+  const hub=await response.json();window.location.assign('/h/'+encodeURIComponent(hub.slug));
+});
 formHandler('consents',form=>saveConsents(form));
 formHandler('join',async form=>{await request('join','POST');await saveConsents(form,true);window.location.assign('/h/'+slug+'/member');});
 document.querySelector('#logout')?.addEventListener('click',async()=>{

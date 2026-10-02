@@ -36,5 +36,13 @@ export async function auditPolicies(client) {
   // Before migration 004 the baseline has two global identity tables.
   const unsafeIdentity=identity.rows.filter(r=>!r.enabled||!r.forced||!r.scope_policy||Number(r.permissive_count)!==1);
   if(unsafeIdentity.length)throw new Error('Unsafe identity policies: '+unsafeIdentity.map(r=>r.name).join(', '));
+  const login=await client.query(`
+    SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname='identity' AND c.relname='login_attempts'
+      AND NOT EXISTS(SELECT 1 FROM pg_policy p WHERE p.polrelid=c.oid
+        AND p.polname='executor_scope' AND NOT p.polpermissive
+        AND p.polqual IS NOT NULL AND p.polwithcheck IS NOT NULL)
+  `);
+  if(login.rows.length)throw new Error('Unsafe login attempt policies');
   return result.rows.length;
 }

@@ -3,7 +3,11 @@ export function renderApplicationShell({hub,view,membership,consents,csrfToken})
   const choices=consents.map(c=>`<label class="choice"><input type="checkbox" name="${e(c.purpose)}" data-purpose="${e(c.purpose)}" data-version="${e(c.notice_version)}"${c.granted?' checked':''}>
     <span><strong>${e(c.purpose.replaceAll('_',' '))}</strong><br>${e(c.notice_text)}</span></label>`).join('');
   const consentForm=`<form id="consents"><h2>Your consent choices</h2><p>These choices apply only to ${e(hub.display_name)}. You can withdraw them here.</p>${choices||'<p>No optional consent choices are available.</p>'}${choices?'<button type="submit">Save choices</button>':''}</form>`;
-  const content=view==='admin'?`<h1>Manage ${e(hub.display_name)}</h1><form id="branding"><h2>Hub branding</h2>
+  const content=view==='create-hub'?`<h1>Create a learning hub</h1><form id="create-hub">
+    <label>Hub name<input name="displayName" maxlength="200" required></label>
+    <label>Hub address<input name="slug" minlength="3" maxlength="63" pattern="[a-z0-9]+(-[a-z0-9]+)*" required aria-describedby="slug-help"></label>
+    <p id="slug-help">Use lowercase letters, numbers and single hyphens.</p><button type="submit">Create hub</button></form>`:
+    view==='admin'?`<h1>Manage ${e(hub.display_name)}</h1><form id="branding"><h2>Hub branding</h2>
     <label>Hub name<input name="displayName" maxlength="200" required value="${e(hub.display_name)}"></label>
     <label>Description<textarea name="description" maxlength="2000">${e(hub.description)}</textarea></label>
     <label>Primary colour<input type="color" name="primaryColor" value="${e(hub.primary_color)}"></label>
@@ -24,6 +28,7 @@ button{font:inherit;padding:10px 16px;border-radius:6px;border:0;background:#245
 </style><script defer src="/assets/plinth-shell.js"></script></head>
 <body data-hub-id="${e(hub.id)}" data-slug="${e(hub.slug)}" data-csrf="${e(csrfToken)}"><header><nav>
 <a href="/h/${e(hub.slug)}">${e(hub.display_name)}</a><a href="/h/${e(hub.slug)}/member">Member area</a>
+<a href="/h/${e(hub.slug)}/create-hub">Create a hub</a>
 ${membership && ['owner','admin'].includes(membership.role)?`<a href="/h/${e(hub.slug)}/admin">Hub admin</a>`:''}
 <button type="button" id="logout">Sign out</button></nav></header><main>${content}<p id="status" role="status" aria-live="polite"></p></main></body></html>`;
 }
