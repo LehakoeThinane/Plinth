@@ -1,0 +1,3 @@
+aws_profile = "ekx-staging"
+account_id = "REPLACE_WITH_VERIFIED_ACCOUNT_ID"
+state_bucket_name = "REPLACE_WITH_UNIQUE_STAGING_STATE_BUCKET"

@@ -1,0 +1,7 @@
+bucket = "REPLACE_WITH_BOOTSTRAP_BUCKET"
+key = "staging/terraform.tfstate"
+region = "af-south-1"
+profile = "ekx-staging"
+encrypt = true
+use_lockfile = true
+# kms_key_id = "REPLACE_WITH_BOOTSTRAP_KMS_KEY_ARN"

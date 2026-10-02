@@ -1,0 +1,26 @@
+name: Infrastructure validation
+on:
+  workflow_dispatch:
+  push:
+    paths: ['infra/**', '.github/workflows/infra.yml']
+  pull_request:
+    paths: ['infra/**', '.github/workflows/infra.yml']
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        directory: [bootstrap, staging]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.10.5'
+      - run: terraform fmt -check -recursive infra
+      - run: terraform -chdir=infra/${{ matrix.directory }} init -backend=false -input=false
+      - run: terraform -chdir=infra/${{ matrix.directory }} validate
+# Validation needs provider downloads but no AWS credentials. Never apply in this job.

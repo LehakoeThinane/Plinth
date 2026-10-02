@@ -1,0 +1,25 @@
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: plinth_admin
+      POSTGRES_PASSWORD: local-development-only
+      POSTGRES_DB: plinth
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - plinth_pg:/var/lib/postgresql/data
+      - ./db/local-init.sql:/docker-entrypoint-initdb.d/00-role.sql:ro
+      - ./db/migrations/001-tenancy.sql:/docker-entrypoint-initdb.d/01-tenancy.sql:ro
+      - ./db/migrations/002-access.sql:/docker-entrypoint-initdb.d/02-access.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U plinth_admin -d plinth"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "127.0.0.1:16379:6379"
+volumes:
+  plinth_pg:

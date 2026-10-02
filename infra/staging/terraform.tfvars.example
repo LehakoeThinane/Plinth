@@ -1,0 +1,6 @@
+aws_profile = "ekx-staging"
+account_id = "REPLACE_WITH_VERIFIED_ACCOUNT_ID"
+asset_bucket_name = "REPLACE_WITH_UNIQUE_STAGING_ASSET_BUCKET"
+availability_zones = ["af-south-1a", "af-south-1b"] # Verify availability for this account.
+postgres_version = "REPLACE_WITH_AVAILABLE_POSTGRES_17_VERSION"
+redis_version = "REPLACE_WITH_AVAILABLE_REDIS_VERSION"
