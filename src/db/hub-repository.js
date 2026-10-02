@@ -12,6 +12,10 @@ export class HubRepository {
     this.#db=db;this.#userId=verifiedUserId;
   }
   #context(hubId) {return {hubId,userId:this.#userId,orgIds:[],isStaff:false};}
+  async isPublishedLogo(hubId,file) {
+    return this.#db.withSnapshot(this.#context(publicContext),async tx=>
+      (await tx.query('SELECT app.is_published_logo($1,$2) AS published',[hubId,file])).rows[0].published);
+  }
   async resolve({slug=null,hostname=null}) {
     if((slug===null)===(hostname===null) ||
       (slug!==null && (typeof slug!=='string'||! /^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/.test(slug))) ||
