@@ -25,7 +25,7 @@ export class ConsentRepository {
         noticeVersion.length < 1 || noticeVersion.length > 100) {
       throw Object.assign(new Error('Invalid consent decision'), { status: 400 });
     }
-    return this.#db.withSnapshot(this.#context(hubId), async tx => {
+    try{return await this.#db.withSnapshot(this.#context(hubId), async tx => {
       if (granted && !(await tx.query('SELECT app.is_active_member() AS active')).rows[0].active)
         throw Object.assign(new Error('Not found'), { status: 404 });
       const result = await tx.query(`SELECT notice_version FROM compliance.consent_purposes
@@ -39,6 +39,9 @@ export class ConsentRepository {
         SET granted=excluded.granted,notice_version=excluded.notice_version,changed_at=now()
         RETURNING purpose,granted,notice_version,changed_at`,
       [hubId,this.#userId,purpose,granted,noticeVersion])).rows[0];
-    });
+    });}catch(error){
+      if(['23514','40001','40P01'].includes(error.code))throw Object.assign(new Error('Consent notice changed'),{status:409});
+      throw error;
+    }
   }
 }

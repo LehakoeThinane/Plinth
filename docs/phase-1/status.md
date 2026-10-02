@@ -171,18 +171,50 @@ protection, HTTP/CSRF boundaries and cached company-access revocation.
 Bootstrap the identity executor before applying 009 after 008 on existing databases.
 Fresh Compose volumes and CI do this automatically. See [organisation setup](organisations.md).
 
+## Seventh implemented slice: purpose-notice publishing
+
+Active hub owners/admins can now publish optional consent purposes and revisions
+through the hub admin screen and `GET/PUT /v1/hubs/{hub}/notices`. Publishing an
+existing purpose requires the version the admin last viewed; concurrent edits
+return conflict rather than overwrite each other. A new purpose requires an
+explicit null expected version. The API accepts notices up to 10,000 characters,
+including Unicode, under a bounded request size. Cookie writes retain CSRF and
+host/hub isolation, and notice text renders as escaped text.
+
+Migration 010 adds forced-RLS publication history and restrictive admin policies
+for purpose inserts/updates. Each write appends its version, text, actor and time
+in the same transaction. A constrained non-login consent executor owns only the
+audit trigger; runtime cannot mutate history or assume the role. Version reuse
+and same-version text edits are rejected by the database, preventing old grants
+from becoming valid again. Existing current notices are imported with unknown
+original author/date rather than invented metadata. Versions observed in older
+consent records are also reserved, preventing reuse after an upgrade.
+
+Old consent grants become inactive on publication of a revision. Consent audit
+snapshots remain intact, and users can explicitly agree to the current notice.
+Publication racing a consent save either preserves the exact old snapshot or
+returns conflict for review. Optional consent never grants membership/access.
+
+Validation: 127 local checks passed, including a legacy upgrade test and 76 embedded database checks;
+76 integration checks passed against real PostgreSQL 17. Coverage includes
+admin/RLS permissions, removed policy detection, immutable history, version reuse,
+concurrent publication and consent, CSRF, body limits, Unicode and escaped forms.
+Bootstrap `plinth_consent_executor` before migration 010 after 009 on existing
+databases; fresh Compose/CI bootstrap does so automatically.
+See [notice publishing](notices.md) for the API and deployment limits.
+
 ## Remaining Phase 1 scope
 
 Managed provider selection/configuration and real hosted sign-in verification;
 explicit account-linking workflow; new-account/email invitations and enterprise
 organisation verification; domain ownership verification, TLS/custom-host
 routing and browser UAT; branding asset upload/serving.
-Purpose-notice publication currently requires an administrative migration
-or controlled database operation; its provider-admin interface is not built.
+Notice retirement, enterprise-scale history pagination and retention/deletion
+workflows remain to build.
 
 The existing identity/membership tables are a starting point, not acceptance of
 the full global account model. Auth-provider setup requires an actual tenant and
 configuration. No production payment/video integration has been introduced.
 
-Next implementation slice: purpose-notice publication through the hub admin UI.
+Next implementation slice: branding asset upload/serving.
 Overall Phase 0 external gates remain open.

@@ -81,7 +81,7 @@ Provider text is escaped, CSP permits only the platform's same-origin script,
 and browser credentials never enter localStorage/sessionStorage.
 
 `npm run dev` remains a health shell. There is no development token bypass or
-public sample authenticator. Apply migrations 006–009 after 005 and provision the
+public sample authenticator. Apply migrations 006–010 after 005 and provision the
 restricted auth role separately on an existing database. Local/CI bootstrap
 uses a development-only password; staging needs managed secrets/role provisioning.
 The full database suite additionally requires `TEST_AUTH_DATABASE_URL`.

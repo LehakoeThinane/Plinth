@@ -45,11 +45,13 @@ jobs:
       - run: psql -h localhost -U plinth_admin -d plinth -v ON_ERROR_STOP=1 -f db/migrations/007-auth-function-owner.sql
       - run: psql -h localhost -U plinth_admin -d plinth -v ON_ERROR_STOP=1 -f db/migrations/008-login-attempts.sql
       - run: psql -h localhost -U plinth_admin -d plinth -v ON_ERROR_STOP=1 -f db/migrations/009-organisation-admin.sql
+      - run: psql -h localhost -U plinth_admin -d plinth -v ON_ERROR_STOP=1 -f db/migrations/010-purpose-publication.sql
       - run: npm test
       - run: npm run test:tenant
       - run: npm run test:http
       - run: npm run test:auth
       - run: npm run test:hosted-auth
       - run: npm run test:architecture
+      - run: npm run test:notice-migration
       - run: npm run test:db:embedded
       - run: npm run test:db

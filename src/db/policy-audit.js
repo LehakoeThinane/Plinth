@@ -46,5 +46,19 @@ export async function auditPolicies(client) {
         AND p.polqual IS NOT NULL AND p.polwithcheck IS NOT NULL)
   `);
   if(login.rows.length)throw new Error('Unsafe login attempt policies');
+  const notices=await client.query(`SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname='compliance' AND c.relname='notice_publications'
+      AND NOT EXISTS(SELECT 1 FROM pg_policy p WHERE p.polrelid=c.oid AND p.polname='admin_scope'
+        AND NOT p.polpermissive AND p.polqual IS NOT NULL AND p.polwithcheck IS NOT NULL)`);
+  if(notices.rows.length)throw new Error('Unsafe notice publication policies');
+  const writes=await client.query(`SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname='compliance' AND c.relname='consent_purposes'
+      AND EXISTS(SELECT 1 FROM pg_class h JOIN pg_namespace hn ON hn.oid=h.relnamespace
+        WHERE hn.nspname='compliance' AND h.relname='notice_publications')
+      AND (NOT EXISTS(SELECT 1 FROM pg_policy p WHERE p.polrelid=c.oid AND p.polname='admin_insert'
+        AND p.polcmd='a' AND NOT p.polpermissive AND p.polwithcheck IS NOT NULL)
+        OR NOT EXISTS(SELECT 1 FROM pg_policy p WHERE p.polrelid=c.oid AND p.polname='admin_update'
+        AND p.polcmd='w' AND NOT p.polpermissive AND p.polqual IS NOT NULL AND p.polwithcheck IS NOT NULL))`);
+  if(writes.rows.length)throw new Error('Unsafe notice publication policies');
   return result.rows.length;
 }

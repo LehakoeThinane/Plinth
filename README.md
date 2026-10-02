@@ -79,7 +79,9 @@ are implemented. Real provider configuration and sign-in UAT remain.
 Global organisation creation/admin screens, targeted existing-account invitations,
 membership revocation and an audit trail are implemented; see
 [organisation setup](docs/phase-1/organisations.md).
+Hub admins can publish versioned optional consent notices with immutable
+publication snapshots; see [notice publishing](docs/phase-1/notices.md).
 See [authentication setup](docs/phase-1/authentication.md).
 `npm run dev` remains a health shell; it does not enable test authentication or
-seed accounts. Apply migrations 003–009 in order to an
+seed accounts. Apply migrations 003–010 in order to an
 existing local database; fresh Compose volumes and CI apply them automatically.

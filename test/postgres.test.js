@@ -17,6 +17,7 @@ import { createManagedAuthenticator } from '../src/modules/identity/managed-auth
 import { generateKeyPair,exportJWK,createLocalJWKSet,SignJWT } from 'jose';
 import { request as httpRequest } from 'node:http';
 import { organisationChecks } from './organisation-workflows.js';
+import { noticeChecks } from './notice-workflows.js';
 // Native HTTP preserves an explicit Host for reverse-proxy origin tests; Fetch
 // implementations may replace that forbidden browser header with localhost.
 function fetch(url,options={}) {
@@ -229,12 +230,12 @@ try {
     await assert.rejects(db.withSnapshot({...context,userId:userA},tx=>tx.query("UPDATE compliance.consent_events SET granted=true")),{code:'42501'});
   });
   await check('new notice invalidates prior grant without rewriting audit history',async()=>{
-    await consentA.set(a,{purpose:'marketing',granted:true,noticeVersion:'v1'});
-    await admin.query("UPDATE compliance.consent_purposes SET notice_version='v2',notice_text='Revised notice' WHERE hub_id=$1",[a]);
-    assert.equal((await consentA.list(a))[0].granted,false);
-    await assert.rejects(consentA.set(a,{purpose:'marketing',granted:true,noticeVersion:'v1'}),{status:409});
-    assert.equal((await admin.query("SELECT count(*)::int AS n FROM compliance.consent_events WHERE hub_id=$1 AND notice_text='Hub A marketing'",[a])).rows[0].n,3);
-    await admin.query("UPDATE compliance.consent_purposes SET notice_version='v1',notice_text='Hub A marketing' WHERE hub_id=$1",[a]);
+    await admin.query("INSERT INTO compliance.consent_purposes(hub_id,purpose,notice_version,notice_text) VALUES($1,'updates','v1','Original updates notice')",[a]);
+    await consentA.set(a,{purpose:'updates',granted:true,noticeVersion:'v1'});
+    await admin.query("UPDATE compliance.consent_purposes SET notice_version='v2',notice_text='Revised notice' WHERE hub_id=$1 AND purpose='updates'",[a]);
+    assert.equal((await consentA.list(a)).find(n=>n.purpose==='updates').granted,false);
+    await assert.rejects(consentA.set(a,{purpose:'updates',granted:true,noticeVersion:'v1'}),{status:409});
+    assert.equal((await admin.query("SELECT count(*)::int AS n FROM compliance.consent_events WHERE hub_id=$1 AND notice_text='Original updates notice'",[a])).rows[0].n,1);
   });
   await admin.query("UPDATE catalogue.products SET status='published' WHERE hub_id=$1",[a]);
   await admin.query("UPDATE catalogue.lessons SET status='published' WHERE hub_id=$1",[a]);
@@ -361,6 +362,7 @@ try {
     assert.ok(!html.includes('<img src=x'));
   });
   let sessionCookie,csrfToken;
+  await noticeChecks({admin,app,db,hubId:createdHub,otherHub:a,userA,userB,check,embeddedMode,base,fetch,slug:createdSlug});
   const browserHeaders={host:'learn-a.example',origin:'https://learn-a.example'};
   await check('browser session exchange requires a verified bearer and exact trusted origin',async()=>{
     const sessionUrl=base+'/v1/hubs/'+a+'/session';
@@ -487,9 +489,10 @@ try {
   await admin.query('DELETE FROM identity.auth_sessions WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM identity.org_invitations WHERE org_id=ANY($1::uuid[])',[testOrgs]);
   await admin.query('DELETE FROM identity.org_events WHERE org_id=ANY($1::uuid[])',[testOrgs]);
-  await admin.query('DELETE FROM compliance.consent_events WHERE hub_id=ANY($1::uuid[])',[[a,b]]);
-  await admin.query('DELETE FROM compliance.consents WHERE hub_id=ANY($1::uuid[])',[[a,b]]);
-  await admin.query('DELETE FROM compliance.consent_purposes WHERE hub_id=ANY($1::uuid[])',[[a,b]]);
+  await admin.query('DELETE FROM compliance.consent_events WHERE hub_id=ANY($1::uuid[])',[testHubs]);
+  await admin.query('DELETE FROM compliance.notice_publications WHERE hub_id=ANY($1::uuid[])',[testHubs]);
+  await admin.query('DELETE FROM compliance.consents WHERE hub_id=ANY($1::uuid[])',[testHubs]);
+  await admin.query('DELETE FROM compliance.consent_purposes WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM identity.auth_links WHERE user_id=ANY($1::uuid[])',[testUsers]);
   await admin.query('DELETE FROM identity.auth_issuers WHERE issuer=$1',[issuer]);
   await admin.query('DELETE FROM identity.sso_configurations WHERE org_id=ANY($1::uuid[])',[[orgA,orgB]]);

@@ -28,6 +28,11 @@ formHandler('create-hub',async form=>{
   const hub=await response.json();window.location.assign('/h/'+encodeURIComponent(hub.slug));
 });
 formHandler('consents',form=>saveConsents(form));
+for(const form of document.querySelectorAll('.publish-notice'))form.addEventListener('submit',async event=>{
+  event.preventDefault();const button=form.querySelector('button');button.disabled=true;
+  try{await request('notices','PUT',{...Object.fromEntries(new FormData(form)),expectedVersion:form.dataset.expectedVersion||null});window.location.reload();}
+  catch(error){status.textContent=error.message;}finally{button.disabled=false;}
+});
 formHandler('create-organisation',async form=>{const org=await request('organisations','POST',Object.fromEntries(new FormData(form)));window.location.assign('/h/'+slug+'/organisations?org='+org.id);});
 formHandler('rename-organisation',form=>request('organisations/'+orgId,'PUT',Object.fromEntries(new FormData(form))));
 formHandler('accept-invitation',async form=>{const data=Object.fromEntries(new FormData(form));await request('organisations/'+encodeURIComponent(data.orgId)+'/accept','POST',{token:data.token});form.reset();window.location.assign('/h/'+slug+'/organisations');});
