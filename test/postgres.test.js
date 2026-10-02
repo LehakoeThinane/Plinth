@@ -1,14 +1,13 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { PostgresAccessRepository } from '../src/db/access-repository.js';
-import { AccessService } from '../src/access.js';
 import { MemoryAccessCache } from '../src/cache/memory.js';
-import { createApi } from '../src/http/server.js';
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { TenantDatabase } from '../src/db/tenant.js';
 import { auditPolicies } from '../src/db/policy-audit.js';
 import { ConsentRepository } from '../src/db/consent-repository.js';
+import { IdentityRepository } from '../src/db/identity-repository.js';
+import { createApplication } from '../src/app.js';
 const embeddedMode=process.env.PLINTH_EMBEDDED_TEST==='1';
 if (!embeddedMode && (!process.env.DATABASE_URL || !process.env.TEST_ADMIN_DATABASE_URL)) throw Error('Real PostgreSQL URLs are required; integration tests cannot be skipped.');
 const embedded=embeddedMode?await (await import('./embedded-postgres.js')).createEmbeddedPools():null;
@@ -31,6 +30,7 @@ try {
   });
   await check('policy audit passes baseline',()=>auditPolicies(admin));
   await admin.query('INSERT INTO tenancy.hubs(id,slug) VALUES ($1,$3),($2,$4)',[a,b,'test-'+a,'test-'+b]);
+  await admin.query("INSERT INTO identity.organisations(id,display_name) VALUES ($1,'Company A'),($2,'Company B')",[orgA,orgB]);
   await admin.query('INSERT INTO tenancy.boundaries(hub_id,id,company_org) VALUES ($1,$2,NULL),($1,$3,$4),($5,$6,$7)',[a,publicBoundary,privateBoundary,orgA,b,otherBoundary,orgB]);
   await admin.query("INSERT INTO catalogue.products(hub_id,id,boundary_id,title,visibility) VALUES ($1,$2,$3,'public','public'),($1,$4,$5,'private','company'),($6,$7,$8,'other','company')",[a,publicProduct,publicBoundary,privateProduct,privateBoundary,b,otherProduct,otherBoundary]);
   await admin.query("INSERT INTO catalogue.lessons(hub_id,id,product_id,boundary_id,title) VALUES ($1,$2,$3,$4,'private lesson')",[a,lesson,privateProduct,privateBoundary]);
@@ -75,8 +75,51 @@ try {
   await check('policy harness rejects a permissive policy widening tenant access',async()=>{
     const c=await admin.connect();try{await c.query('BEGIN');await c.query('CREATE POLICY accidental_allow ON catalogue.lessons USING (true) WITH CHECK (true)');await assert.rejects(auditPolicies(c),/Unsafe/);}finally{await c.query('ROLLBACK');c.release();}
   });
+  await check('policy harness rejects missing global identity isolation',async()=>{
+    const c=await admin.connect();try{
+      await c.query('BEGIN');await c.query('DROP POLICY member_scope ON identity.organisations');
+      await assert.rejects(auditPolicies(c),/Unsafe identity/);
+    }finally{await c.query('ROLLBACK');c.release();}
+  });
+  await check('policy harness rejects disabled SSO configuration isolation',async()=>{
+    const c=await admin.connect();try{
+      await c.query('BEGIN');await c.query('ALTER TABLE identity.sso_configurations DISABLE ROW LEVEL SECURITY');
+      await assert.rejects(auditPolicies(c),/Unsafe identity/);
+    }finally{await c.query('ROLLBACK');c.release();}
+  });
   await admin.query('INSERT INTO identity.users(id) VALUES ($1),($2)',[userA,userB]);
   await admin.query("INSERT INTO identity.org_members(user_id,org_id,status) VALUES ($1,$2,'active'),($3,$4,'active')",[userA,orgA,userB,orgB]);
+  const issuer='https://identity.example/'+a;
+  await admin.query('INSERT INTO identity.auth_links(issuer,subject,user_id) VALUES ($1,$2,$3)',[issuer,'subject-a',userA]);
+  const identityA=new IdentityRepository(db,userA),identityB=new IdentityRepository(db,userB);
+  await check('global account and organisation reads stay scoped to the verified user',async()=>{
+    const account=await identityA.account(a);
+    assert.equal(account.user.id,userA);
+    assert.deepEqual(account.organisations.map(o=>o.id),[orgA]);
+    assert.equal((await identityA.account(b)).user.id,userA);
+    assert.deepEqual((await identityB.account(a)).organisations.map(o=>o.id),[orgB]);
+    await db.withSnapshot({...context,userId:userB},async tx=>assert.equal((await tx.query('SELECT * FROM identity.auth_links')).rows.length,0));
+  });
+  await check('issuer and subject cannot be linked to a second global account',async()=>{
+    await assert.rejects(admin.query('INSERT INTO identity.auth_links(issuer,subject,user_id) VALUES ($1,$2,$3)',[issuer,'subject-a',userB]),{code:'23505'});
+    await assert.rejects(db.withSnapshot({...context,userId:userA},tx=>tx.query('INSERT INTO identity.auth_links(issuer,subject,user_id) VALUES ($1,$2,$3)',[issuer,'forged',userA])),{code:'42501'});
+  });
+  await admin.query("INSERT INTO identity.sso_configurations(org_id,protocol,issuer,client_id) VALUES ($1,'oidc',$2,'company-client')",[orgA,issuer]);
+  await check('company SSO configuration is visible only to an active organisation admin',async()=>{
+    await assert.rejects(identityA.ssoConfiguration(a,orgA),{status:404});
+    await admin.query("UPDATE identity.org_members SET role='admin' WHERE user_id=$1",[userA]);
+    assert.equal((await identityA.ssoConfiguration(a,orgA)).enabled,false);
+    await assert.rejects(identityB.ssoConfiguration(a,orgA),{status:404});
+    await admin.query("UPDATE identity.org_members SET status='ended' WHERE user_id=$1",[userA]);
+    await assert.rejects(identityA.ssoConfiguration(a,orgA),{status:404});
+    assert.equal((await identityA.account(a)).organisations.length,0);
+    await admin.query("UPDATE identity.org_members SET status='active',role='member' WHERE user_id=$1",[userA]);
+  });
+  await check('runtime cannot elevate organisation roles or activate unfinished SSO',async()=>{
+    await assert.rejects(db.withSnapshot({...context,userId:userA},tx=>tx.query("UPDATE identity.org_members SET role='admin'")),{code:'42501'});
+    await assert.rejects(admin.query('UPDATE identity.sso_configurations SET enabled=true WHERE org_id=$1',[orgA]),{code:'23514'});
+    await assert.rejects(admin.query("INSERT INTO identity.org_members(user_id,org_id,status) VALUES ($1,$2,'active')",[userA,randomUUID()]),{code:'23503'});
+  });
   await admin.query("INSERT INTO tenancy.memberships(hub_id,user_id,role,status) VALUES ($1,$2,'member','active'),($1,$3,'member','active')",[a,userA,userB]);
   await admin.query("INSERT INTO compliance.consent_purposes(hub_id,purpose,notice_version,notice_text) VALUES ($1,'marketing','v1','Hub A marketing'),($2,'marketing','v1','Hub B marketing')",[a,b]);
   const consentA=new ConsentRepository(db,userA),consentB=new ConsentRepository(db,userB);
@@ -118,9 +161,7 @@ try {
   await admin.query("UPDATE catalogue.lessons SET status='published' WHERE hub_id=$1",[a]);
   await admin.query('INSERT INTO access.entitlements(hub_id,id,user_id,target_id) VALUES ($1,$2,$3,$4)',[a,entitlement,userA,privateProduct]);
   const cache=new MemoryAccessCache();
-  server=createApi({authenticate:async token=>token==='learner-a'?{userId:userA}:token==='learner-b'?{userId:userB}:null,
-    accessForPrincipal:p=>new AccessService(new PostgresAccessRepository(db,p.userId),cache),
-    consentForPrincipal:p=>new ConsentRepository(db,p.userId)});
+  server=createApplication({pool:app,cache,authenticate:async token=>token==='learner-a'?{userId:userA}:token==='learner-b'?{userId:userB}:null});
   server.listen(0,'127.0.0.1');await once(server,'listening');
   const base='http://127.0.0.1:'+server.address().port;
   const url=base+'/v1/hubs/'+a+'/lessons/'+lesson+'/access';
@@ -153,8 +194,20 @@ try {
   console.log(count+' PostgreSQL integration checks passed');
 } finally {
   if(server)await new Promise(resolve=>server.close(resolve));
+  try {
   await admin.query('DELETE FROM compliance.consent_events WHERE hub_id=ANY($1::uuid[])',[[a,b]]);
   await admin.query('DELETE FROM compliance.consents WHERE hub_id=ANY($1::uuid[])',[[a,b]]);
   await admin.query('DELETE FROM compliance.consent_purposes WHERE hub_id=ANY($1::uuid[])',[[a,b]]);
-  try{await admin.query('DELETE FROM access.entitlements WHERE hub_id=ANY($1::uuid[])',[[a,b]]);await admin.query('DELETE FROM tenancy.memberships WHERE hub_id=ANY($1::uuid[])',[[a,b]]);await admin.query('DELETE FROM identity.org_members WHERE user_id=ANY($1::uuid[])',[[userA,userB]]);await admin.query('DELETE FROM identity.users WHERE id=ANY($1::uuid[])',[[userA,userB]]);await admin.query('DELETE FROM catalogue.lessons WHERE hub_id=ANY($1::uuid[])',[[a,b]]);await admin.query('DELETE FROM catalogue.products WHERE hub_id=ANY($1::uuid[])',[[a,b]]);await admin.query('DELETE FROM tenancy.boundaries WHERE hub_id=ANY($1::uuid[])',[[a,b]]);await admin.query('DELETE FROM tenancy.hubs WHERE id=ANY($1::uuid[])',[[a,b]]);}finally{await app.end();await admin.end();if(embedded)await embedded.close();}
+  await admin.query('DELETE FROM identity.auth_links WHERE user_id=ANY($1::uuid[])',[[userA,userB]]);
+  await admin.query('DELETE FROM identity.sso_configurations WHERE org_id=ANY($1::uuid[])',[[orgA,orgB]]);
+  await admin.query('DELETE FROM access.entitlements WHERE hub_id=ANY($1::uuid[])',[[a,b]]);
+  await admin.query('DELETE FROM tenancy.memberships WHERE hub_id=ANY($1::uuid[])',[[a,b]]);
+  await admin.query('DELETE FROM identity.org_members WHERE user_id=ANY($1::uuid[])',[[userA,userB]]);
+  await admin.query('DELETE FROM identity.users WHERE id=ANY($1::uuid[])',[[userA,userB]]);
+  await admin.query('DELETE FROM catalogue.lessons WHERE hub_id=ANY($1::uuid[])',[[a,b]]);
+  await admin.query('DELETE FROM catalogue.products WHERE hub_id=ANY($1::uuid[])',[[a,b]]);
+  await admin.query('DELETE FROM tenancy.boundaries WHERE hub_id=ANY($1::uuid[])',[[a,b]]);
+  await admin.query('DELETE FROM tenancy.hubs WHERE id=ANY($1::uuid[])',[[a,b]]);
+  await admin.query('DELETE FROM identity.organisations WHERE id=ANY($1::uuid[])',[[orgA,orgB]]);
+  } finally { await app.end();await admin.end();if(embedded)await embedded.close(); }
 }

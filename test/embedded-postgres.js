@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
  */
 export async function createEmbeddedPools() {
   const engine=await PGlite.create();
-  for(const path of ['../db/local-init.sql','../db/migrations/001-tenancy.sql','../db/migrations/002-access.sql','../db/migrations/003-consent.sql']) {
+  for(const path of ['../db/local-init.sql','../db/migrations/001-tenancy.sql','../db/migrations/002-access.sql','../db/migrations/003-consent.sql','../db/migrations/004-identity.sql']) {
     await engine.exec(await readFile(new URL(path,import.meta.url),'utf8'));
   }
   let queue=Promise.resolve();

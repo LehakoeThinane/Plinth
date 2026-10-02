@@ -21,5 +21,20 @@ export async function auditPolicies(client) {
     !row.hub_policy || Number(row.permissive_count) !== 1 || (row.company_owned && !row.company_policy));
   if (failures.length) throw new Error('Unsafe tenant policies: ' + failures.map(r=>r.schema+'.'+r.name).join(', '));
   if (!result.rows.length) throw new Error('No tenant schema found');
+  const identity = await client.query(`
+    SELECT c.relname AS name,c.relrowsecurity AS enabled,c.relforcerowsecurity AS forced,
+      (SELECT count(*) FROM pg_policy p WHERE p.polrelid=c.oid AND p.polpermissive) AS permissive_count,
+      EXISTS(SELECT 1 FROM pg_policy p WHERE p.polrelid=c.oid AND p.polpermissive
+        AND p.polqual IS NOT NULL AND p.polwithcheck IS NOT NULL
+        AND p.polname=CASE c.relname
+          WHEN 'organisations' THEN 'member_scope'
+          WHEN 'sso_configurations' THEN 'admin_scope' ELSE 'self_scope' END) AS scope_policy
+    FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname='identity' AND c.relkind IN ('r','p')
+      AND c.relname IN ('users','org_members','organisations','auth_links','sso_configurations')
+  `);
+  // Before migration 004 the baseline has two global identity tables.
+  const unsafeIdentity=identity.rows.filter(r=>!r.enabled||!r.forced||!r.scope_policy||Number(r.permissive_count)!==1);
+  if(unsafeIdentity.length)throw new Error('Unsafe identity policies: '+unsafeIdentity.map(r=>r.name).join(', '));
   return result.rows.length;
 }
