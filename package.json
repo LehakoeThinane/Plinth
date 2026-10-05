@@ -10,10 +10,12 @@
     "test:auth": "node --test test/auth.test.js",
     "test:hosted-auth": "node --test test/hosted-auth.test.js",
     "test:notice-migration": "node --test test/notice-migration.test.js",
+    "test:logo": "node --test test/logo.test.js",
+    "test:domain": "node --test test/domain.test.js",
     "test:db:embedded": "node test/run-embedded.js",
     "dev": "node scripts/dev.js",
     "test:architecture": "node --test test/architecture.test.js",
-    "verify": "npm test && npm run test:tenant && npm run test:http && npm run test:auth && npm run test:hosted-auth && npm run test:architecture && npm run test:notice-migration && npm run test:db:embedded"
+    "verify": "npm test && npm run test:tenant && npm run test:http && npm run test:auth && npm run test:hosted-auth && npm run test:architecture && npm run test:notice-migration && npm run test:logo && npm run test:domain && npm run test:db:embedded"
   },
   "engines": {
     "node": ">=22"
@@ -21,7 +23,8 @@
   "dependencies": {
     "jose": "6.2.12",
     "openid-client": "6.8.8",
-    "pg": "8.16.3"
+    "pg": "8.16.3",
+    "sharp": "0.35.5"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.8"

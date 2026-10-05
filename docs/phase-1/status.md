@@ -71,7 +71,7 @@ decision; joining never grants optional consent.
 `GET /v1/hubs/{id}/membership` returns only the active caller's membership.
 `PUT /v1/hubs/{id}/branding` allows only active owners/admins to change safe text,
 hex colour, an enumerated font or an image path belonging to that hub. Runtime
-cannot change membership roles. Branding image uploads/serving remain to build.
+cannot change membership roles. The eighth slice below adds logo uploads/serving.
 `GET /v1/hubs/resolve?slug=...` or `?hostname=...` returns public branding; it never
 returns identity, company or membership information. Forwarded host headers are
 not used for this lookup.
@@ -203,12 +203,64 @@ Bootstrap `plinth_consent_executor` before migration 010 after 009 on existing
 databases; fresh Compose/CI bootstrap does so automatically.
 See [notice publishing](notices.md) for the API and deployment limits.
 
+## Eighth implemented slice: logo uploads and public branding assets
+
+The configured application now accepts raw PNG/JPEG/WebP logo uploads from active
+hub owners/admins and exposes upload/removal controls in the admin screen. Images
+are decoded and converted to bounded WebP under byte/pixel limits, with metadata
+removed. SVG/HTML, MIME mismatches, corrupt images and animations are rejected.
+Cookie mutations retain CSRF and host/hub isolation. Database publication rechecks
+active admin authority after decoding/storage, and failed publication attempts
+cleanup of the unpublished object.
+
+An injectable private filesystem adapter supports development persistence with
+server-generated UUID keys. Public serving checks the exact current DB pointer;
+replaced, removed, foreign-hub and unpublished keys return 404. There is no static
+storage listing. Migration 011's non-login branding reader has narrowly granted
+SELECT/function authority; runtime cannot assume it or bypass ordinary hub RLS.
+Old/unpublished objects remain private pending eventual garbage collection.
+
+Validation: 139 local checks passed, including six image/storage tests and 82
+embedded database checks. The full 82-check PostgreSQL 17 suite is wired into CI;
+the local real-database rerun was blocked by connection timeouts.
+Coverage includes decoder/output limits, actual animation, metadata stripping,
+storage persistence/traversal, authority loss at publication, restricted DB roles,
+tenant isolation, CSRF, the admin form and current-pointer-only serving.
+See [branding setup](branding.md). Shared staging object storage, deployment,
+ingress rate limits, garbage collection and browser/TLS UAT remain outstanding.
+
+## Ninth implemented slice: DNS ownership verification
+
+Hub owners/admins can create/rotate a 24-hour TXT challenge, check DNS ownership,
+list claims/verified names and remove mappings from the admin screen and API.
+Challenge values appear once and only their hashes persist. DNS proof is checked
+by a bounded resolver against the exact hostname; TXT chunks within one record
+join, while unrelated records cannot combine into proof.
+
+Migration 012 separates pending hub-scoped claims from globally unique verified
+names. Verification consumes the current unexpired challenge and rechecks admin
+authority after DNS. Ordinary application credentials cannot mark domains verified;
+a separate function-only verifier calls a constrained non-login executor under
+forced RLS. A missing restrictive claim policy fails the policy audit. Competing
+claims cannot overwrite another hub's verified mapping. Cookie administration
+retains CSRF and host/hub session isolation.
+
+Validation: 149 local checks passed, including four DNS service tests and 88
+embedded SQL/HTTP checks; all 88 integration checks also passed against local
+PostgreSQL 17. CI runs the same suite with fresh roles and ordered migrations.
+New cases cover token rotation during DNS, expiry, admin revocation during DNS,
+cross-hub conflicts, restricted roles, policy removal, CSRF, UI and mapping removal.
+Tests use injected TXT responses; real public DNS and TLS acceptance remain pending.
+See [domain setup](domains.md). Ownership proof does not provision TLS, routing,
+OIDC callbacks or trusted browser origins. Rate limits, ownership rechecks,
+claim cleanup and domain transfers remain deployment/lifecycle work.
+
 ## Remaining Phase 1 scope
 
 Managed provider selection/configuration and real hosted sign-in verification;
 explicit account-linking workflow; new-account/email invitations and enterprise
-organisation verification; domain ownership verification, TLS/custom-host
-routing and browser UAT; branding asset upload/serving.
+organisation verification; real DNS acceptance, TLS/custom-host
+routing and browser UAT; shared staging branding storage and lifecycle operations.
 Notice retirement, enterprise-scale history pagination and retention/deletion
 workflows remain to build.
 
@@ -216,5 +268,5 @@ The existing identity/membership tables are a starting point, not acceptance of
 the full global account model. Auth-provider setup requires an actual tenant and
 configuration. No production payment/video integration has been introduced.
 
-Next implementation slice: branding asset upload/serving.
+Next implementation slice: explicit account linking.
 Overall Phase 0 external gates remain open.
