@@ -222,7 +222,8 @@ Old/unpublished objects remain private pending eventual garbage collection.
 
 Validation: 139 local checks passed, including six image/storage tests and 82
 embedded database checks. The full 82-check PostgreSQL 17 suite is wired into CI;
-the local real-database rerun was blocked by connection timeouts.
+the local real-database rerun was blocked by connection timeouts at the time, and
+has since passed (see Re-verification below).
 Coverage includes decoder/output limits, actual animation, metadata stripping,
 storage persistence/traversal, authority loss at publication, restricted DB roles,
 tenant isolation, CSRF, the admin form and current-pointer-only serving.
@@ -270,3 +271,11 @@ configuration. No production payment/video integration has been introduced.
 
 Next implementation slice: explicit account linking.
 Overall Phase 0 external gates remain open.
+
+## Re-verification — 13 October 2026
+
+No code has changed since slice nine (commit 5e12d2f). `npm run verify` passed 149
+checks with no failures. `npm run test:db` passed all 88 checks against local
+PostgreSQL 17 on four of five consecutive runs; the first run, immediately after
+container start, failed an uncaptured assertion. Watch for a recurrence. Hosted CI
+on GitHub Actions passes both workflows for the latest `dev` push and pull request.
