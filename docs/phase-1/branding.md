@@ -33,9 +33,26 @@ The server generates the key `hubs/{hub_uuid}/branding/{file_uuid}.webp` and
 returns `logoPath`. A failed database publication attempts to remove the new
 object. `DELETE` on the upload endpoint clears the current logo pointer.
 Replacement/removal does not synchronously delete old objects; they remain
-private and need eventual garbage collection. A failed cleanup can also leave a
-private orphan. Do not expose the storage root through a static server or bucket
-listing to compensate.
+private until the garbage collector removes them. A failed cleanup can also leave
+a private orphan. Do not expose the storage root through a static server or
+bucket listing to compensate.
+
+## Garbage collection
+
+`npm run logos:gc` lists every stored logo object and removes those that are not
+their hub's current published logo and are older than one hour. The grace period
+protects in-flight uploads, which store the object just before publishing its
+pointer. It is a dry run by default, printing what it would remove; add
+`-- --apply` to delete. It needs `BRANDING_ROOT` and `DATABASE_URL` (the
+`plinth_app` connection) and decides "current" with the existing
+`app.is_published_logo` function, so it needs no extra database authority.
+Objects of hubs that no longer exist are removed too.
+
+Listing (`hubs()` and `list(hubId)`) is part of the storage adapter contract for
+this job only; HTTP never lists storage. If an admin re-points branding to an
+older object of the same hub while the collector runs, that object can be
+removed and the logo then returns 404 until re-uploaded. Schedule the job during
+quiet periods; a staging scheduler is deployment work.
 
 `GET /assets/hubs/{hub_uuid}/branding/{file_uuid}.webp` is deliberately public hub
 branding. A narrow database function verifies the exact current logo pointer
@@ -51,9 +68,10 @@ Bootstrap `plinth_branding_reader NOLOGIN NOSUPERUSER NOBYPASSRLS` before applyi
 011 after 010 on an existing database. Fresh Compose and CI bootstrap it.
 
 For staging, supply the same private adapter contract: `put(hubId, id, Buffer)`
-(create-only), `read(hubId, id)` (Buffer or null), and `delete(hubId, id)`.
+(create-only), `read(hubId, id)` (Buffer or null), `delete(hubId, id)`, and for
+the collector `hubs()` and `list(hubId)` (`[{id, modifiedAt}]`).
 A shared private object-storage adapter, deployment credentials/policies, upload
-rate limits, disk capacity, garbage collection and real browser/TLS UAT still need
+rate limits, disk capacity, a collector schedule and real browser/TLS UAT still need
 deployment work. Private S3 remains the staging design; no S3 resources have been
 provisioned by this slice. Do not enable production credentials before the
 applicable Phase 0 gates pass.

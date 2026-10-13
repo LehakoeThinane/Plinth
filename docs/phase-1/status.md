@@ -322,6 +322,20 @@ passed 106 checks (five new) on three consecutive runs. A test-cleanup ordering
 bug found along the way was fixed. Apply migration 015 after 014 on existing
 databases. See [notice publishing](notices.md).
 
+## Thirteenth implemented slice: logo garbage collection
+
+`npm run logos:gc` removes stored logo objects that are not their hub's current
+logo and are older than a one-hour grace period, which protects in-flight
+uploads. It is a dry run unless `--apply` is given, and reuses the existing
+`app.is_published_logo` check, so it needs no new database authority. The
+storage adapter gained operator-only listing; HTTP still never lists storage.
+
+Validation: `npm run verify` passed 176 checks; the full PostgreSQL 17 suite
+passed 107 checks on three consecutive runs. Coverage includes current, replaced,
+removed, unpublished, in-flight and other-hub objects, dry run versus apply,
+grace-period validation and invalid storage entries. No migration is needed.
+See [branding setup](branding.md#garbage-collection).
+
 ## Account setup on hold
 
 Auth0 (EU region) was selected as the login provider and AWS staging account
@@ -335,7 +349,7 @@ Managed provider selection/configuration and real hosted sign-in verification;
 new-account/email invitations and legal/registration
 organisation verification beyond domain ownership; real DNS acceptance, TLS/custom-host
 routing and browser UAT; shared staging branding storage and lifecycle operations.
-Logo garbage collection and retention/deletion workflows remain to build.
+Record-specific retention/deletion workflows remain to build.
 
 The existing identity/membership tables are a starting point, not acceptance of
 the full global account model. Auth-provider setup requires an actual tenant and

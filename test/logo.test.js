@@ -7,6 +7,8 @@ import { resolve,relative,isAbsolute } from 'node:path';
 import { normaliseLogo,maxLogoBytes } from '../src/modules/tenancy/logo-images.js';
 import { LocalBrandingStore } from '../src/storage/local-branding.js';
 import { LogoService } from '../src/modules/tenancy/logo-service.js';
+import { collectLogos,logoGracePeriodMs } from '../src/modules/tenancy/logo-collector.js';
+import { writeFile,utimes } from 'node:fs/promises';
 const image=()=>sharp({create:{width:800,height:400,channels:4,background:'#2456a6'}});
 test('PNG, JPEG and WebP become bounded static WebP without metadata',async()=>{
   for(const [format,type] of [['png','image/png'],['jpeg','image/jpeg'],['webp','image/webp']]) {
@@ -59,4 +61,34 @@ test('authority loss at publication removes the unpublished object; learners can
   await assert.rejects(service.upload(hub,bytes,'image/png'),e=>e===error);assert.equal(objects.size,0);
   const learner=new LogoService({store,hubs:{membership:async()=>({role:'member'})}});
   await assert.rejects(learner.upload(hub,bytes,'image/png'),{status:404});assert.equal(objects.size,0);
+});
+test('collector keeps current and recent logos, removes only old unpublished ones and dry-runs by default',async()=>{
+  const now=Date.now(),old=new Date(now-logoGracePeriodMs-1000),fresh=new Date(now-1000),hub=randomUUID(),other=randomUUID();
+  const ids={current:randomUUID(),replaced:randomUUID(),inflight:randomUUID(),foreign:randomUUID()};
+  const objects=new Map([[hub,[{id:ids.current,modifiedAt:old},{id:ids.replaced,modifiedAt:old},{id:ids.inflight,modifiedAt:fresh}]],[other,[{id:ids.foreign,modifiedAt:old}]]]);
+  const deleted=[],store={hubs:async()=>[...objects.keys()],list:async h=>objects.get(h),delete:async(h,id)=>deleted.push(id)};
+  // Only the exact hub/key pair counts: a key current in one hub is not current in another.
+  const isPublishedLogo=async(h,file)=>h===hub&&file===ids.current+'.webp';
+  const dry=await collectLogos({store,isPublishedLogo,now});
+  assert.deepEqual({dryRun:dry.dryRun,kept:dry.kept,recent:dry.recent},{dryRun:true,kept:1,recent:1});
+  assert.deepEqual(dry.removed.map(r=>r.id).sort(),[ids.replaced,ids.foreign].sort());assert.equal(deleted.length,0);
+  const applied=await collectLogos({store,isPublishedLogo,now,apply:true});
+  assert.equal(applied.dryRun,false);assert.deepEqual(deleted.sort(),[ids.replaced,ids.foreign].sort());
+  for(const graceMs of [0,59999,NaN])await assert.rejects(collectLogos({store,isPublishedLogo,graceMs}),/Grace period/);
+});
+test('private storage lists only valid logo objects for the collector',async()=>{
+  const root=resolve('.local'),hub=randomUUID(),id=randomUUID();await mkdir(root,{recursive:true});
+  const directory=await mkdtemp(resolve(root,'logo-list-'));
+  try {
+    const store=new LocalBrandingStore({root:directory});
+    assert.deepEqual(await store.hubs(),[]);
+    await store.put(hub,id,await normaliseLogo(await image().png().toBuffer(),'image/png'));
+    const folder=resolve(directory,'hubs',hub,'branding');
+    await writeFile(resolve(folder,'notes.txt'),'ignored');await writeFile(resolve(folder,'not-a-uuid.webp'),'ignored');
+    await mkdir(resolve(directory,'hubs','not-a-hub'),{recursive:true});
+    const past=new Date(Date.now()-7200000);await utimes(resolve(folder,id+'.webp'),past,past);
+    assert.deepEqual(await store.hubs(),[hub]);
+    const listed=await store.list(hub);assert.deepEqual(listed.map(o=>o.id),[id]);assert.ok(Math.abs(listed[0].modifiedAt-past)<2000);
+    await assert.rejects(store.list('../escape'),/Invalid/);assert.deepEqual(await store.list(randomUUID()),[]);
+  }finally{const path=relative(root,directory);assert.ok(path&&!path.startsWith('..')&&!isAbsolute(path));await rm(directory,{recursive:true,force:true});}
 });

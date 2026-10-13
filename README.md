@@ -22,7 +22,7 @@ are still pending.
 - A separate metadata-only public listing operation.
 - Recipient authorisation at message delivery, including suspension and company removal.
 - Progress conflict handling: monotonic completion/furthest position, independently mutable resume position.
-- Sixteen domain regression cases (`npm test`); the full local suite is 173 checks (`npm run verify`).
+- Sixteen domain regression cases (`npm test`); the full local suite is 176 checks (`npm run verify`).
 
 ## Run tests
 
@@ -56,7 +56,7 @@ The continuation adds six HTTP tests (npm run test:http). These verify routing/a
 
 ## Database verification without Docker
 
-Run npm run test:db:embedded. All 106 embedded SQL/RLS and database-backed HTTP checks pass. Full PostgreSQL 17 integration is still a separate CI requirement; the test-only embedded runner does not validate concurrent independent connections.
+Run npm run test:db:embedded. All 107 embedded SQL/RLS and database-backed HTTP checks pass. Full PostgreSQL 17 integration is still a separate CI requirement; the test-only embedded runner does not validate concurrent independent connections.
 
 ## Current Phase 0 status
 
