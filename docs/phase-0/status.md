@@ -4,7 +4,7 @@ Updated: 2 October 2026. Technical foundation complete locally; overall Phase 0 
 
 ## Verified technical deliverables
 
-- Git repository initialised locally; lockfile, ignores and GitHub Actions workflow present. No remote repository or hosted CI run is claimed.
+- Git repository with GitHub remote `LehakoeThinane/Plinth`; lockfile, ignores and GitHub Actions workflows present. Hosted CI runs on pushes and pull requests to `dev` (see Re-verification below).
 - Composition root, 11 module skeletons and documented ownership boundaries.
 - Tenant transaction wrapper with validated context, parameterised local settings, repeatable-read snapshots and rollback/connection cleanup.
 - Forced hub RLS, restrictive company policies, non-null inherited boundaries and provider-only catalogue mutation rules.
@@ -19,7 +19,9 @@ npm run verify passed: 16 domain, 4 tenant-wrapper, 6 HTTP, 2 architecture and 2
 
 npm run test:db passed all 21 integration checks against network PostgreSQL 17. This repeats the SQL/HTTP acceptance cases on the actual database service, verifying the application role, pooled context cleanup and wire connection path rather than relying on the embedded adapter.
 
-Redis PING returned PONG. Both Compose services reported healthy. CI is configured to run all local checks plus the full PostgreSQL suite; it has not run on a remote host.
+Redis PING returned PONG. Both Compose services reported healthy. CI runs all local checks plus the full PostgreSQL suite on GitHub Actions.
+
+These Phase 0 counts are historical; Phase 1 added checks. See [Phase 1 status](../phase-1/status.md) for current totals.
 
 ## Review-ready deliverables
 
@@ -44,3 +46,11 @@ Executable AWS Terraform is now prepared in infra/bootstrap and infra/staging. B
 The staging baseline includes isolated subnets, application-only database/cache ingress, encrypted private PostgreSQL/Redis, TLS, managed secrets, protected/private asset storage and a restricted runtime role. Runtime has no RDS master-secret access and cannot list asset storage. The bootstrap state bucket is encrypted, versioned and protected from destruction; staging uses S3 native lockfiles. Account IDs, actual available engine versions/zones and globally unique bucket names remain required inputs.
 
 All Phase 0 preparatory code, local technical verification and review-ready packs are complete. Overall Phase 0 acceptance remains OPEN, exclusively for actual account/deployment evidence and external payment/privacy decisions. Generic documentation, validated Terraform and draft review packs cannot establish those facts. User confirmation remains that no staging account/profile, PSP replies or legal assessments exist.
+
+## Re-verification — 13 October 2026
+
+Hosted CI evidence: the Foundation gates (fresh PostgreSQL 17, migrations 001–012, all local and full database suites) and Infrastructure validation workflows have passed on GitHub Actions for `dev` pushes and pull requests through commit 5e12d2f (2 October 2026).
+
+Local re-run: `npm run verify` passed 149 checks with no failures. After restarting Docker Compose, PostgreSQL 17 and Redis were healthy and `npm run test:db` passed 88 checks on four of five consecutive runs. The first run, immediately after container start, failed an assertion that was not captured; the cause is unconfirmed and should be investigated if it recurs.
+
+The external payment, privacy and AWS staging gates are unchanged.

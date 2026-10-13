@@ -22,7 +22,7 @@ are still pending.
 - A separate metadata-only public listing operation.
 - Recipient authorisation at message delivery, including suspension and company removal.
 - Progress conflict handling: monotonic completion/furthest position, independently mutable resume position.
-- Sixteen executable regression cases.
+- Sixteen domain regression cases (`npm test`); the full local suite is 149 checks (`npm run verify`).
 
 ## Run tests
 
@@ -56,11 +56,12 @@ The continuation adds six HTTP tests (npm run test:http). These verify routing/a
 
 ## Database verification without Docker
 
-Run npm run test:db:embedded. All 21 embedded SQL/RLS and database-backed HTTP checks pass. Full PostgreSQL 17 integration is still a separate CI requirement; the test-only embedded runner does not validate concurrent independent connections.
+Run npm run test:db:embedded. All 88 embedded SQL/RLS and database-backed HTTP checks pass. Full PostgreSQL 17 integration is still a separate CI requirement; the test-only embedded runner does not validate concurrent independent connections.
 
 ## Current Phase 0 status
 
-The Phase 0 foundation was verified locally against full PostgreSQL 17 and Redis.
+The Phase 0 foundation was verified locally against full PostgreSQL 17 and Redis,
+and hosted CI on GitHub Actions runs the same suites for `dev`.
 See [Phase 0 acceptance](docs/phase-0/status.md) for evidence and remaining
 vendor/legal and AWS staging gates, and the Phase 1 status for current test counts.
 npm run dev starts a localhost health shell; it does not issue credentials or

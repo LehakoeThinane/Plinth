@@ -10,6 +10,6 @@ Secrets: environment/secret-manager injection; no committed production values. T
 
 Audit events: actor, hub, organisation where applicable, action, target, timestamp, request id and external reference for seat grants. Do not log tokens, passwords, signed URLs or full message bodies.
 
-Docker-free verification: npm run test:db:embedded applies both migrations in an ephemeral PGlite database and runs the same integration suite. It validates SQL/RLS and HTTP decisions but not independent concurrent connections or network PostgreSQL behaviour. npm run test:db against PostgreSQL 17 remains a separate required acceptance gate.
+Docker-free verification: npm run test:db:embedded applies all migrations in an ephemeral PGlite database and runs the same integration suite. It validates SQL/RLS and HTTP decisions but not independent concurrent connections or network PostgreSQL behaviour. npm run test:db against PostgreSQL 17 remains a separate required acceptance gate.
 
-Current local state (2 October 2026): Docker Compose project plinth-phase0 is running healthy PostgreSQL 17 and Redis. Redis port is 16379; PostgreSQL port is 55432. The ignored .env is set up. Both migrations have been applied through fresh-volume initialisation. All 21 full database tests pass. Earlier Docker-unavailable notes are superseded by docs/phase-0/status.md.
+Current local state (13 October 2026): Docker Compose project plinth-phase0 runs healthy PostgreSQL 17 and Redis. Redis port is 16379; PostgreSQL port is 55432. The ignored .env is set up. Migrations 001–012 are applied, and all 88 full database tests pass. Docker Desktop must be running before docker compose up -d. Earlier Docker-unavailable notes are superseded by docs/phase-0/status.md.
