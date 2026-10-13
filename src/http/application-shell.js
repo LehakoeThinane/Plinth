@@ -1,18 +1,21 @@
 import { escapeText as e } from './storefront.js';
 import { renderOrganisations } from './organisation-shell.js';
 import { renderAccount } from './account-shell.js';
-export function renderApplicationShell({hub,view,membership,consents,csrfToken,account,signIn,organisation,orgDomains,publications=[],brandingEnabled=false,domains}) {
-  const choices=consents.map(c=>`<label class="choice"><input type="checkbox" name="${e(c.purpose)}" data-purpose="${e(c.purpose)}" data-version="${e(c.notice_version)}"${c.granted?' checked':''}>
+export function renderApplicationShell({hub,view,membership,consents,csrfToken,account,signIn,organisation,orgDomains,publications=[],olderNotices=null,brandingEnabled=false,domains}) {
+  // Retired purposes are no longer offered; their old grants are inactive.
+  const choices=consents.filter(c=>!c.retired).map(c=>`<label class="choice"><input type="checkbox" name="${e(c.purpose)}" data-purpose="${e(c.purpose)}" data-version="${e(c.notice_version)}"${c.granted?' checked':''}>
     <span><strong>${e(c.purpose.replaceAll('_',' '))}</strong><br>${e(c.notice_text)}</span></label>`).join('');
   const consentForm=`<form id="consents"><h2>Your consent choices</h2><p>These choices apply only to ${e(hub.display_name)}. You can withdraw them here.</p>${choices||'<p>No optional consent choices are available.</p>'}${choices?'<button type="submit">Save choices</button>':''}</form>`;
   const noticeFields=(notice=null)=>`<label>Purpose key<input name="purpose" required pattern="[a-z][a-z0-9_]{0,63}" maxlength="64" value="${e(notice?.purpose)}"${notice?' readonly':''}></label>
     <label>New version<input name="noticeVersion" required maxlength="100"></label>
     <label>Notice text<textarea name="noticeText" required maxlength="10000">${e(notice?.notice_text)}</textarea></label>
     <button>Publish notice</button>`;
-  const noticeAdmin=`<section><h2>Consent notices</h2><p>Each publication needs a new version. Publishing a revision makes older grants inactive until the member agrees again. Optional consent remains optional.</p>
+  const noticeAdmin=`<section><h2>Consent notices</h2><p>Each publication needs a new version. Publishing a revision makes older grants inactive until the member agrees again. Retiring a purpose stops offering it and makes existing grants inactive; members can still withdraw. To offer it again, publish a new version. Optional consent remains optional.</p>
     <form class="publish-notice" data-expected-version=""><h3>New purpose</h3>${noticeFields()}</form>
-    ${consents.map(n=>`<form class="publish-notice" data-expected-version="${e(n.notice_version)}"><h3>${e(n.purpose)} · current ${e(n.notice_version)}</h3>${noticeFields(n)}</form>`).join('')}
-    <h3>Recent publications</h3><ul>${publications.map(n=>`<li>${e(n.purpose)} · ${e(n.notice_version)} · ${e(n.published_at??'Imported; original date unknown')}<p>${e(n.notice_text??'Historic text unavailable or conflicting; consult consent snapshots.')}</p></li>`).join('')||'<li>No publications yet.</li>'}</ul></section>`;
+    ${consents.map(n=>`<form class="publish-notice" data-expected-version="${e(n.notice_version)}"><h3>${e(n.purpose)} · ${n.retired?'retired':'current'} ${e(n.notice_version)}</h3>${noticeFields(n)}
+      ${n.retired?'':`<button type="button" class="retire-notice" data-purpose="${e(n.purpose)}" data-version="${e(n.notice_version)}">Retire purpose</button>`}</form>`).join('')}
+    <h3>Notice history</h3><ul>${publications.map(n=>`<li>${e(n.purpose)} · ${e(n.notice_version)} · ${n.kind==='retired'?'retired':'published'} · ${e(n.at??'Imported; original date unknown')}${n.kind==='retired'?'':`<p>${e(n.notice_text??'Historic text unavailable or conflicting; consult consent snapshots.')}</p>`}</li>`).join('')||'<li>No publications yet.</li>'}</ul>
+    ${olderNotices?`<p><a href="/h/${e(hub.slug)}/admin?notices_before=${encodeURIComponent(olderNotices)}">Older entries</a></p>`:''}</section>`;
   const domainAdmin=domains?`<section><h2>Custom domain ownership</h2><p>Verify DNS ownership here. HTTPS and domain activation are arranged separately.</p>
     <form id="domain-request"><label>Hostname<input name="hostname" maxlength="232" placeholder="learn.yourcompany.co.za" required></label><button>Create or replace DNS proof</button></form>
     <p id="domain-proof" role="status"></p><ul>${domains.claims.map(d=>`<li>${e(d.hostname)} · proof expires ${e(d.expires_at)} <button class="verify-domain" data-hostname="${e(d.hostname)}">Check DNS</button> <button class="remove-domain" data-hostname="${e(d.hostname)}">Remove</button></li>`).join('')}${domains.verified.map(d=>`<li>${e(d.hostname)} · ownership verified <button class="remove-domain" data-hostname="${e(d.hostname)}">Remove</button></li>`).join('')}</ul></section>`:'';

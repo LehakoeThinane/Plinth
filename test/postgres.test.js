@@ -514,6 +514,7 @@ try {
   await admin.query('DELETE FROM identity.org_events WHERE org_id=ANY($1::uuid[])',[testOrgs]);
   await admin.query('DELETE FROM compliance.consent_events WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM compliance.notice_publications WHERE hub_id=ANY($1::uuid[])',[testHubs]);
+  await admin.query('DELETE FROM compliance.notice_retirements WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM compliance.consents WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM compliance.consent_purposes WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM identity.account_events WHERE user_id=ANY($1::uuid[])',[testUsers]);

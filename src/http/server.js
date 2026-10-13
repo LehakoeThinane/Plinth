@@ -78,9 +78,9 @@ export function createApi({authenticate,accessForPrincipal,consentForPrincipal,n
         const orgId=requestUrl.searchParams.get('org');
         const organisation=account && orgId?await organisationForPrincipal(principal).admin(hub.id,orgId):undefined;
         const orgDomains=organisation&&orgDomainsForPrincipal?await orgDomainsForPrincipal(principal).list(hub.id,orgId):undefined;
-        const publications=shell[2]==='admin'&&noticeForPrincipal?await noticeForPrincipal(principal).history(hub.id):[];
+        const history=shell[2]==='admin'&&noticeForPrincipal?await noticeForPrincipal(principal).history(hub.id,{before:requestUrl.searchParams.get('notices_before')}):{publications:[],next:null};
         const domains=shell[2]==='admin'&&domainForPrincipal?await domainForPrincipal(principal).list(hub.id):undefined;
-        const html=renderApplicationShell({hub,view:shell[2],membership,account,signIn,organisation,orgDomains,publications,domains,brandingEnabled:Boolean(brandingStore),consents:await consentForPrincipal(principal).list(hub.id),csrfToken:principal.csrfToken});
+        const html=renderApplicationShell({hub,view:shell[2],membership,account,signIn,organisation,orgDomains,publications:history.publications,olderNotices:history.next,domains,brandingEnabled:Boolean(brandingStore),consents:await consentForPrincipal(principal).list(hub.id),csrfToken:principal.csrfToken});
         res.writeHead(200,htmlHeaders);return res.end(html);
       }
       const storefront=path.match(/^\/h\/([a-z0-9-]+)$/);
@@ -95,8 +95,8 @@ export function createApi({authenticate,accessForPrincipal,consentForPrincipal,n
       const match=path.match(/^\/v1\/hubs\/([^/]+)\/lessons\/([^/]+)\/access$/);
       const consent=path.match(/^\/v1\/hubs\/([^/]+)\/consents$/);
       const consentRoute=consentForPrincipal && consent && uuid.test(consent[1]) && ['GET','PUT'].includes(req.method);
-      const notice=path.match(/^\/v1\/hubs\/([^/]+)\/notices$/);
-      const noticeRoute=noticeForPrincipal&&notice&&uuid.test(notice[1])&&['GET','PUT'].includes(req.method);
+      const notice=path.match(/^\/v1\/hubs\/([^/]+)\/notices(?:\/(retire))?$/);
+      const noticeRoute=noticeForPrincipal&&notice&&uuid.test(notice[1])&&(notice[2]?req.method==='POST':['GET','PUT'].includes(req.method));
       const org=path.match(/^\/v1\/hubs\/([^/]+)\/organisations(?:\/([^/]+)(?:\/(invitations|accept|members)(?:\/([^/]+))?)?)?$/);
       const accountRoute=identityForPrincipal && path.match(/^\/v1\/hubs\/([^/]+)\/account$/);
       const orgRoute=organisationForPrincipal && org && uuid.test(org[1]) && (!org[2]||uuid.test(org[2])) &&
@@ -148,7 +148,10 @@ export function createApi({authenticate,accessForPrincipal,consentForPrincipal,n
       }
       if(noticeRoute) {
         const repository=noticeForPrincipal(principal);
-        return send(200,req.method==='GET'?{publications:await repository.history(targetHub)}:await repository.publish(targetHub,await readObject(req,65536)));
+        if(notice[2])return send(200,await repository.retire(targetHub,await readObject(req)));
+        if(req.method==='GET')return send(200,await repository.history(targetHub,
+          {before:requestUrl.searchParams.get('before'),limit:requestUrl.searchParams.get('limit')??50}));
+        return send(200,await repository.publish(targetHub,await readObject(req,65536)));
       }
       if(readAccount)return send(200,await identityForPrincipal(principal).account(targetHub));
       if(linkRoute) {

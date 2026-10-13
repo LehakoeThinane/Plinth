@@ -10,7 +10,8 @@
 | Tenant isolation | Verified | Embedded and full PostgreSQL 17 suites pass locally and in hosted CI | Engineering |
 | Repository/CI baseline | Verified | GitHub remote `LehakoeThinane/Plinth`; foundation and infrastructure workflows pass on `dev` pushes and PRs | Engineering |
 | Local environment | Verified | Docker Compose PostgreSQL 17 and Redis healthy; full suite re-run 13 October 2026 | Engineering |
-| Staging | Not provisioned | Account/profile, isolated secrets, region and environment deployment evidence | Infrastructure owner |
+| Login provider | Auth0 selected (EU region), 13 October 2026 | DPA accepted; POPIA cross-border transfer assessment for identity data; real sign-in on staging. Amazon Cognito in Cape Town was the documented SA-resident alternative | Product/privacy |
+| Staging | Not provisioned; account setup steps prepared | Account/profile, isolated secrets, region and environment deployment evidence. See docs/phase0/staging/aws-account-setup.md | Infrastructure owner |
 
 Evidence records must include document location, date, actual account/product scope, reviewer and limitations. Do not mark a vendor approved from generic documentation alone.
 

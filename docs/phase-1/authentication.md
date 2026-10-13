@@ -81,7 +81,7 @@ Provider text is escaped, CSP permits only the platform's same-origin script,
 and browser credentials never enter localStorage/sessionStorage.
 
 `npm run dev` remains a health shell. There is no development token bypass or
-public sample authenticator. Apply migrations 006–014 after 005 and provision the
+public sample authenticator. Apply migrations 006–015 after 005 and provision the
 restricted auth role separately on an existing database. Local/CI bootstrap
 uses a development-only password; staging needs managed secrets/role provisioning.
 The full database suite additionally requires `TEST_AUTH_DATABASE_URL`.
@@ -104,6 +104,8 @@ methods. Linking reuses the hosted OIDC flow with `prompt=login` and the
 existing session as proof of the account; see [account linking](account-linking.md).
 
 ## Hosted provider configuration
+
+The selected provider is Auth0; tenant steps are in [Auth0 setup](auth0-setup.md).
 
 Build `oidcConfiguration` from trusted deployment settings using
 [`openid-client` discovery](https://github.com/panva/openid-client/blob/main/docs/functions/discovery.md),

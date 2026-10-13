@@ -22,7 +22,7 @@ are still pending.
 - A separate metadata-only public listing operation.
 - Recipient authorisation at message delivery, including suspension and company removal.
 - Progress conflict handling: monotonic completion/furthest position, independently mutable resume position.
-- Sixteen domain regression cases (`npm test`); the full local suite is 168 checks (`npm run verify`).
+- Sixteen domain regression cases (`npm test`); the full local suite is 173 checks (`npm run verify`).
 
 ## Run tests
 
@@ -56,7 +56,7 @@ The continuation adds six HTTP tests (npm run test:http). These verify routing/a
 
 ## Database verification without Docker
 
-Run npm run test:db:embedded. All 101 embedded SQL/RLS and database-backed HTTP checks pass. Full PostgreSQL 17 integration is still a separate CI requirement; the test-only embedded runner does not validate concurrent independent connections.
+Run npm run test:db:embedded. All 106 embedded SQL/RLS and database-backed HTTP checks pass. Full PostgreSQL 17 integration is still a separate CI requirement; the test-only embedded runner does not validate concurrent independent connections.
 
 ## Current Phase 0 status
 
@@ -83,7 +83,7 @@ membership revocation and an audit trail are implemented; see
 Organisation admins can prove DNS control of a company domain; a verified
 domain belongs to one organisation.
 Hub admins can publish versioned optional consent notices with immutable
-publication snapshots; see [notice publishing](docs/phase-1/notices.md).
+publication snapshots, and retire purposes with paged history; see [notice publishing](docs/phase-1/notices.md).
 Hub logo upload/removal and current-logo serving use an injectable private storage
 adapter; see [branding setup](docs/phase-1/branding.md).
 Hub admins can verify custom-domain DNS ownership through a separate verifier
@@ -94,5 +94,5 @@ with fresh provider sign-in and recent-session checks; see
 [account linking](docs/phase-1/account-linking.md).
 See [authentication setup](docs/phase-1/authentication.md).
 `npm run dev` remains a health shell; it does not enable test authentication or
-seed accounts. Apply migrations 003–014 in order to an
+seed accounts. Apply migrations 003–015 in order to an
 existing local database; fresh Compose volumes and CI apply them automatically.

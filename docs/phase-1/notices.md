@@ -8,8 +8,13 @@ existing consent endpoint. No consent is preselected or granted by publication.
 
 ## API
 
-`GET /v1/hubs/{hubId}/notices` returns the latest 100 publication snapshots to an
-active hub admin. `PUT` accepts:
+`GET /v1/hubs/{hubId}/notices` returns notice history to an active hub admin,
+newest first: publications (`kind: "published"`, with text) and retirements
+(`kind: "retired"`), each with `actor` and `at`. Imported entries with an unknown
+date sort last with `at: null`. Pages default to 50 entries (`limit` 1–100);
+pass the returned `next` value as `before` for older entries. The cursor is
+opaque; malformed cursors and limits return 400. The admin screen shows the
+first page with an "Older entries" link. `PUT` accepts:
 
 ```json
 {
@@ -32,6 +37,24 @@ Purpose keys follow `[a-z][a-z0-9_]{0,63}`; versions have 1–100 characters and
 65,536 bytes to accommodate valid Unicode JSON; other request limits are unchanged.
 Cookie mutations require exact Origin and CSRF. Role/company headers cannot
 override verified identity, membership or session hub/host boundaries.
+
+## Retiring a purpose
+
+`POST /v1/hubs/{hubId}/notices/retire` with `{"purpose","expectedVersion"}`
+retires the current version; a stale or already-retired version returns 409.
+A retired purpose is no longer offered to members or joiners, existing grants
+become inactive, and new grants are refused (409), while withdrawal still works.
+Retirement keeps the version and text; the database stamps who retired it and
+when, and appends the event to forced-RLS `compliance.notice_retirements` in the
+same transaction. To offer the purpose again, publish a new version: that
+reactivates it, and older grants stay inactive because their version differs.
+A retired version can never be reused.
+
+Migration 015 adds the retirement columns and history table, lets runtime set
+only `retired_at` (the guard stamps `retired_by`), and extends the publication
+guard, audit trigger and consent check. Retirement cannot be undone in place.
+Apply it after 014 on existing databases. Downstream use of consent (for
+example marketing sends) must check that the purpose is active as well as granted.
 
 ## Database and consent guarantees
 
@@ -62,6 +85,5 @@ route. Optional consent does not grant access, join hubs or reactivate membershi
 ## Remaining acceptance
 
 This supplies a technical publication workflow, not approval of notice wording.
-Real provider/TLS/browser-device UAT, notice retirement, full history pagination
-and record-specific retention/deletion remain outstanding. History currently
-returns the most recent 100 entries; the database retains all publications.
+Real provider/TLS/browser-device UAT and record-specific retention/deletion
+remain outstanding. The database retains all publications and retirements.

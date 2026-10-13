@@ -64,6 +64,12 @@ for(const form of document.querySelectorAll('.publish-notice'))form.addEventList
   try{await request('notices','PUT',{...Object.fromEntries(new FormData(form)),expectedVersion:form.dataset.expectedVersion||null});window.location.reload();}
   catch(error){status.textContent=error.message;}finally{button.disabled=false;}
 });
+for(const button of document.querySelectorAll('.retire-notice'))button.addEventListener('click',async()=>{
+  if(!window.confirm('Retire this purpose? Existing agreements stop counting and members can no longer agree to it.'))return;
+  button.disabled=true;
+  try{await request('notices/retire','POST',{purpose:button.dataset.purpose,expectedVersion:button.dataset.version});window.location.reload();}
+  catch(error){status.textContent=error.message;button.disabled=false;}
+});
 formHandler('create-organisation',async form=>{const org=await request('organisations','POST',Object.fromEntries(new FormData(form)));window.location.assign('/h/'+slug+'/organisations?org='+org.id);});
 formHandler('rename-organisation',form=>request('organisations/'+orgId,'PUT',Object.fromEntries(new FormData(form))));
 formHandler('accept-invitation',async form=>{const data=Object.fromEntries(new FormData(form));await request('organisations/'+encodeURIComponent(data.orgId)+'/accept','POST',{token:data.token});form.reset();window.location.assign('/h/'+slug+'/organisations');});
