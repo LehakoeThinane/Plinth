@@ -2,7 +2,9 @@
 
 Configure `createApplication` or `createManagedApplication` with a separate
 `domainVerificationPool` authenticated as `plinth_domain_verifier`. Without this
-pool, domain administration routes and controls are disabled. The default DNS
+pool, hub and organisation domain administration routes and controls are
+disabled. Organisation domains reuse this verifier and the shared DNS helpers in
+`src/dns/txt-proof.js`; see [organisation setup](organisations.md#organisation-domains). The default DNS
 adapter uses Node's [DNS Resolver](https://nodejs.org/api/dns.html#class-dnspromisesresolver),
 with a dedicated resolver, bounded retries and cancellation deadline for each
 query. `resolveDomainTxt` can be injected for tests or a trusted deployment adapter.

@@ -20,3 +20,7 @@ global user. Its controlled functions are owned by plinth_identity_executor,
 a separate non-login/non-bypass role with explicit RLS policies. It neither
 resolves auth subjects nor grants hub roles, seats or entitlements. Membership
 mutations share an organisation revision lock and append an audit event atomically.
+
+`src/dns/txt-proof.js` is shared infrastructure for DNS TXT ownership proofs, used
+by both tenancy (hub domains) and identity (organisation domains). The resolver
+is injected; neither module trusts request data for DNS names or results.

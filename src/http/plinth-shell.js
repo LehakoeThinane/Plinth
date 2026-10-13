@@ -31,6 +31,17 @@ formHandler('domain-request',async form=>{
 for(const button of document.querySelectorAll('.verify-domain,.remove-domain'))button.addEventListener('click',async()=>{
   button.disabled=true;try{await request(button.classList.contains('verify-domain')?'domains/verify':'domains',button.classList.contains('verify-domain')?'POST':'DELETE',{hostname:button.dataset.hostname});window.location.reload();}catch(error){status.textContent=error.message;button.disabled=false;}
 });
+formHandler('org-domain-request',async form=>{
+  const proof=await request('organisations/'+orgId+'/domains','POST',Object.fromEntries(new FormData(form)));
+  document.querySelector('#org-domain-proof').textContent='Add a TXT record at '+proof.recordName+' with value '+proof.recordValue+'. Expires '+proof.expiresAt+'. Copy this value now; refreshing hides it.';
+});
+for(const button of document.querySelectorAll('.verify-org-domain,.remove-org-domain'))button.addEventListener('click',async()=>{
+  const verify=button.classList.contains('verify-org-domain');
+  if(!verify&&!window.confirm('Remove this organisation domain?'))return;
+  button.disabled=true;
+  try{await request('organisations/'+orgId+'/domains'+(verify?'/verify':''),verify?'POST':'DELETE',{domain:button.dataset.domain});window.location.reload();}
+  catch(error){status.textContent=error.message;button.disabled=false;}
+});
 formHandler('logo',async form=>{
   const file=form.elements.image.files[0];
   if(!file || file.size>2*1024*1024)throw new Error('Choose an image up to 2 MB.');

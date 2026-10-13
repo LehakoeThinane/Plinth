@@ -1,5 +1,11 @@
 import { escapeText as e } from './storefront.js';
-export function renderOrganisations({hub,account,organisation}) {
+function renderDomains(orgDomains) {
+  if(!orgDomains)return '';
+  return `<h3>Company domains</h3><p>Prove your organisation controls a domain, such as its email domain, by adding a DNS TXT record. A verified domain belongs to one organisation only. Verification shows DNS control; it is not proof of incorporation.</p>
+    <form id="org-domain-request"><label>Domain<input name="domain" maxlength="232" placeholder="yourcompany.co.za" required></label><button>Create or replace DNS proof</button></form>
+    <p id="org-domain-proof" role="status"></p><ul>${orgDomains.claims.map(d=>`<li>${e(d.domain)} · proof expires ${e(d.expiresAt)} <button type="button" class="verify-org-domain" data-domain="${e(d.domain)}">Check DNS</button> <button type="button" class="remove-org-domain" data-domain="${e(d.domain)}">Remove</button></li>`).join('')}${orgDomains.verified.map(d=>`<li>${e(d.domain)} · verified ${e(d.verifiedAt)} <button type="button" class="remove-org-domain" data-domain="${e(d.domain)}">Remove</button></li>`).join('')||(orgDomains.claims.length?'':'<li>No domains yet.</li>')}</ul>`;
+}
+export function renderOrganisations({hub,account,organisation,orgDomains}) {
   const org=organisation?.organisation;
   const listing=account.organisations.map(o=>`<li>${e(o.display_name||'Organisation')} (${e(o.role)}) ${o.role==='admin'?`<a href="/h/${e(hub.slug)}/organisations?org=${e(o.id)}">Manage</a>`:''}</li>`).join('');
   const creation=`<form id="create-organisation"><h2>Create an organisation</h2><label>Display name<input name="displayName" required maxlength="200"></label>
@@ -16,6 +22,7 @@ export function renderOrganisations({hub,account,organisation}) {
       <button type="button" class="remove-member" data-user-id="${e(m.userId)}">Remove membership</button>`:''}</div>`).join('')}
     <h3>Invitations</h3>${organisation.invitations.map(i=>`<p><code>${e(i.userId)}</code> · ${i.accepted?'Accepted':i.revoked?'Revoked':'Expires '+e(i.expiresAt)}
       ${!i.accepted&&!i.revoked?`<button type="button" class="revoke-invitation" data-id="${e(i.id)}">Revoke</button>`:''}</p>`).join('')||'<p>No invitations.</p>'}
-    <h3>Recent activity</h3><ul>${organisation.events.map(ev=>`<li>${e(ev.createdAt)} · ${e(ev.action)} · ${e(ev.targetUser||ev.actorUser)}</li>`).join('')}</ul></section>`:'';
+    ${renderDomains(orgDomains)}
+    <h3>Recent activity</h3><ul>${organisation.events.map(ev=>`<li>${e(ev.createdAt)} · ${e(ev.action)} · ${e(ev.details?.domain||ev.targetUser||ev.actorUser)}</li>`).join('')}</ul></section>`:'';
   return `<h1>Your organisations</h1><p>Your account ID: <code>${e(account.user.id)}</code></p><ul>${listing||'<li>No active organisations.</li>'}</ul>${creation}${acceptance}${admin}`;
 }

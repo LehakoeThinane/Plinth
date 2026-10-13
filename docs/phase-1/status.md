@@ -280,11 +280,35 @@ protection and concurrent removal. Real-provider `prompt=login` behaviour is not
 yet verified. Apply migration 013 after 012 on existing databases.
 See [account linking](account-linking.md).
 
+## Eleventh implemented slice: organisation domain verification
+
+Organisation admins can prove DNS control of a domain, such as their email
+domain, from the organisation screen and
+`GET/POST/DELETE /v1/hubs/{hub}/organisations/{org}/domains` plus `/domains/verify`.
+Proofs use a one-time `plinth-organisation=` TXT value (hash stored, 24-hour
+expiry) at the same `_plinth-verification.` name as hub domains; hub proofs never
+satisfy organisation claims. DNS lookup and matching now live in a shared
+`src/dns/txt-proof.js`, with hub-domain behaviour unchanged.
+
+Migration 014 adds forced-RLS claim and verified-domain tables, identity-executor
+functions that take the organisation revision lock and record audit events, and
+a confirm function executable only by `plinth_domain_verifier`. A verified domain
+belongs to one organisation globally. Verification is evidence of DNS control,
+not legal identity, and grants nothing yet.
+
+Validation: `npm run verify` passed 168 checks; the full PostgreSQL 17 suite
+passed 101 checks (six new) on three consecutive runs. Coverage includes executor
+ownership, verifier-only confirmation, policy-audit detection, admin-only access,
+rotation/expiry/one-use proofs, admin demotion during DNS, cross-organisation
+takeover attempts, member visibility, HTTP/CSRF and prefix separation. Real
+public DNS is not exercised. Apply migration 014 after 013 on existing databases.
+See [organisation setup](organisations.md#organisation-domains).
+
 ## Remaining Phase 1 scope
 
 Managed provider selection/configuration and real hosted sign-in verification;
-new-account/email invitations and enterprise
-organisation verification; real DNS acceptance, TLS/custom-host
+new-account/email invitations and legal/registration
+organisation verification beyond domain ownership; real DNS acceptance, TLS/custom-host
 routing and browser UAT; shared staging branding storage and lifecycle operations.
 Notice retirement, enterprise-scale history pagination and retention/deletion
 workflows remain to build.

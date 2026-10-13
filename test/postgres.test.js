@@ -21,6 +21,7 @@ import { noticeChecks } from './notice-workflows.js';
 import { logoChecks } from './logo-workflows.js';
 import { domainChecks } from './domain-workflows.js';
 import { accountLinkChecks } from './account-link-workflows.js';
+import { organisationDomainChecks } from './org-domain-workflows.js';
 import { LocalBrandingStore } from '../src/storage/local-branding.js';
 import { mkdir,mkdtemp,rm } from 'node:fs/promises';
 import { resolve,relative,isAbsolute } from 'node:path';
@@ -267,6 +268,7 @@ try {
   const url=base+'/v1/hubs/'+a+'/lessons/'+lesson+'/access';
   const headers={authorization:'Bearer learner-a'};
   const {orgId:createdOrg,owner:organisationsA,other:organisationsB}=await organisationChecks({admin,app,db,a,b,userA,userB,check,testOrgs,testUsers,embeddedMode});
+  await organisationDomainChecks({admin,app,domains,db,a,userA,userB,orgId:createdOrg,check,base,fetch,records:domainRecords,testOrgs});
   await check('login storage is function-only, validates expiry and consumes once under concurrent callbacks',async()=>{
     for(const connection of [app,auth])await assert.rejects(connection.query('SELECT * FROM identity.login_attempts'),e=>e.code==='42501');
     await assert.rejects(app.query('SELECT * FROM app.consume_login_attempt($1,$2)',['1'.repeat(64),'https://learn-a.example']),{code:'42501'});
@@ -506,6 +508,8 @@ try {
   await admin.query('DELETE FROM identity.login_attempts WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM tenancy.domain_claims WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM identity.auth_sessions WHERE hub_id=ANY($1::uuid[])',[testHubs]);
+  await admin.query('DELETE FROM identity.org_domain_claims WHERE org_id=ANY($1::uuid[])',[testOrgs]);
+  await admin.query('DELETE FROM identity.org_domains WHERE org_id=ANY($1::uuid[])',[testOrgs]);
   await admin.query('DELETE FROM identity.org_invitations WHERE org_id=ANY($1::uuid[])',[testOrgs]);
   await admin.query('DELETE FROM identity.org_events WHERE org_id=ANY($1::uuid[])',[testOrgs]);
   await admin.query('DELETE FROM compliance.consent_events WHERE hub_id=ANY($1::uuid[])',[testHubs]);

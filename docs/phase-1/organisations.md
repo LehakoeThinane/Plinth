@@ -31,6 +31,10 @@ The hub ID supplies transaction/session context, not organisation ownership.
 | POST `/v1/hubs/{hub}/organisations/{org}/accept` | Intended signed-in account submits `token` |
 | PUT `/v1/hubs/{hub}/organisations/{org}/members/{user}` | Admin sets `role` to `admin` or `member` |
 | DELETE `/v1/hubs/{hub}/organisations/{org}/members/{user}` | Admin ends membership |
+| GET `/v1/hubs/{hub}/organisations/{org}/domains` | Admin lists pending domain claims and verified domains |
+| POST `/v1/hubs/{hub}/organisations/{org}/domains` | Admin creates/rotates a DNS challenge for `{domain}`; returns the TXT value once |
+| POST `/v1/hubs/{hub}/organisations/{org}/domains/verify` | Admin checks the current DNS proof for `{domain}` |
+| DELETE `/v1/hubs/{hub}/organisations/{org}/domains` | Admin removes that organisation's claim and verified domain |
 
 An account shares its ID from the organisations screen. The administrator creates
 a targeted invitation and privately shares the organisation ID/code. Codes expire
@@ -51,10 +55,36 @@ snapshot limit. Forced RLS plus function-only writes enforce the admin boundary.
 Audit events contain actor/target IDs, action, role-change detail and time; no codes.
 Retention/deletion of audit data requires the record-specific lifecycle still to build.
 
+## Organisation domains
+
+Admins can prove DNS control of a domain, such as the company email domain.
+The screen issues a TXT record at `_plinth-verification.{domain}` with a random
+`plinth-organisation={64 hex characters}` value, shown once. Only its SHA-256
+hash is stored, proofs expire after 24 hours and a new proof replaces the old.
+Hub-domain proofs (`plinth-domain=`) never satisfy an organisation claim. DNS
+lookup, chunk joining and validation are shared with hub domains through
+`src/dns/txt-proof.js`; see [domain setup](domains.md) for resolver behaviour.
+
+Migration 014 adds forced-RLS `identity.org_domain_claims` (identity executor
+only) and `identity.org_domains`, which members of the organisation can read and
+only the executor can write. A verified domain belongs to one organisation
+globally; another organisation's valid proof cannot take it over. Requests,
+confirmation and removal take the organisation revision lock, recheck active
+admin authority and append `domain_requested`, `domain_verified` or
+`domain_removed` events. Confirmation is executable only by the
+`plinth_domain_verifier` login, after the application has checked DNS, and
+consumes the exact current unexpired challenge.
+
+Verification is evidence of DNS control only. It is not proof of incorporation,
+employer authority, B-BBEE status or payment onboarding, and it does not yet
+grant anything: SSO routing and seat purchasing may rely on it later. Periodic
+ownership rechecks, expiry of verified domains and domain transfers remain to
+build. Apply migration 014 after 013 on existing databases.
+
 ## Remaining work
 
 The first slice targets existing accounts. New-user/email invitations and delivery,
-enterprise verification, bulk administration/pagination, billing/VAT/B-BBEE metadata,
+legal/registration verification beyond domain ownership, bulk administration/pagination, billing/VAT/B-BBEE metadata,
 seat assignment and SSO activation are separate work. This screen does not assign
 seats or give hub/course access. Invitation metadata remains after expiry for audit;
 expired codes cannot be accepted. The admin view lists members/invitations in full
