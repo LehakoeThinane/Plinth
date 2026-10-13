@@ -2,7 +2,8 @@ import { TenantDatabase } from './tenant.js';
 
 /** Reads global account data for a user already resolved by verified auth.
  * Hub context is supplied for transaction isolation, not account ownership.
- * Provisioning, account linking and organisation/SSO writes are not exposed.
+ * Provisioning, account linking and organisation/SSO writes are not exposed;
+ * linking is performed only by the constrained auth functions.
  */
 export class IdentityRepository {
   #db;
@@ -21,6 +22,13 @@ export class IdentityRepository {
         WHERE m.status='active' ORDER BY o.id`)).rows;
       return {user,organisations};
     });
+  }
+  async signInMethods(hubId) {
+    return this.#db.withSnapshot({hubId,userId:this.#userId,orgIds:[],isStaff:false},async tx=>({
+      methods:(await tx.query('SELECT issuer,subject,created_at FROM identity.auth_links ORDER BY created_at,issuer,subject')).rows,
+      events:(await tx.query(`SELECT action,issuer,subject,created_at FROM identity.account_events
+        ORDER BY created_at DESC,id LIMIT 50`)).rows
+    }));
   }
   async ssoConfiguration(hubId,orgId) {
     return this.#db.withSnapshot({hubId,userId:this.#userId,orgIds:[],isStaff:false},async tx=>{

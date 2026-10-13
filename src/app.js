@@ -16,11 +16,11 @@ import { LogoService } from './modules/tenancy/logo-service.js';
 import { DomainRepository } from './db/domain-repository.js';
 import { DomainVerification } from './modules/tenancy/domain-verification.js';
 /** Composition root: infrastructure is injected and owned by the caller. */
-export function createApplication({pool,authenticate,browserSessions,hostedSignIn,brandingStore,domainVerificationPool,resolveDomainTxt,cache=new MemoryAccessCache(),onError}) {
+export function createApplication({pool,authenticate,browserSessions,hostedSignIn,accountLinks,brandingStore,domainVerificationPool,resolveDomainTxt,cache=new MemoryAccessCache(),onError}) {
   if(!pool || typeof authenticate!=='function')throw Error('Database and verified authentication adapters are required');
   const database=new TenantDatabase(pool);
   const domainForPrincipal=domainVerificationPool?principal=>new DomainVerification({repository:new DomainRepository(database,new TenantDatabase(domainVerificationPool),principal.userId),resolveTxt:resolveDomainTxt}):undefined;
-  return createApi({authenticate,browserSessions,hostedSignIn,brandingStore,domainForPrincipal,logoForPrincipal:brandingStore?principal=>new LogoService({store:brandingStore,hubs:new HubRepository(database,principal.userId)}):undefined,onError,noticeForPrincipal:principal=>new NoticeRepository(database,principal.userId),identityForPrincipal:principal=>new IdentityRepository(database,principal.userId),
+  return createApi({authenticate,browserSessions,hostedSignIn,accountLinks,brandingStore,domainForPrincipal,logoForPrincipal:brandingStore?principal=>new LogoService({store:brandingStore,hubs:new HubRepository(database,principal.userId)}):undefined,onError,noticeForPrincipal:principal=>new NoticeRepository(database,principal.userId),identityForPrincipal:principal=>new IdentityRepository(database,principal.userId),
     organisationForPrincipal:principal=>new OrganisationRepository(database,principal.userId),publicHubs:new HubRepository(database),hubForPrincipal:principal=>new HubRepository(database,principal.userId),consentForPrincipal:principal=>new ConsentRepository(database,principal.userId),accessForPrincipal:principal=>
     new AccessService(new PostgresAccessRepository(database,principal.userId),cache)});
 }
@@ -36,6 +36,14 @@ export function createManagedApplication({pool,authPool,auth,oidcConfiguration,o
   const authenticate=createManagedAuthenticator({...auth,resolveUser:(issuer,subject)=>repository.resolveUser(issuer,subject)});
   const browserSessions=new BrowserSessions({store:repository,originForHub});
   const hostedSignIn=oidcConfiguration?new HostedSignIn({configuration:oidcConfiguration,store:repository,sessions:browserSessions,
-    resolveUser:(issuer,subject)=>repository.resolveUser(issuer,subject)}):undefined;
-  return createApplication({pool,authenticate,browserSessions,hostedSignIn,brandingStore,domainVerificationPool,resolveDomainTxt,cache,onError});
+    resolveUser:(issuer,subject)=>repository.resolveUser(issuer,subject),
+    linkIdentity:(sessionHash,issuer,subject)=>repository.linkIdentity(sessionHash,issuer,subject)}):undefined;
+  const accountLinks=hostedSignIn?accountLinksFor(hostedSignIn,repository):undefined;
+  return createApplication({pool,authenticate,browserSessions,hostedSignIn,accountLinks,brandingStore,domainVerificationPool,resolveDomainTxt,cache,onError});
+}
+
+/** Sign-in-method management: linking needs hosted sign-in; both act on the browser session. */
+export function accountLinksFor(hostedSignIn,repository) {
+  return {begin:(req,hub,principal)=>hostedSignIn.beginLink(req,hub,principal),
+    unlink:(principal,input)=>repository.unlinkIdentity(principal.sessionHash,input)};
 }

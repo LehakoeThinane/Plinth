@@ -4,7 +4,7 @@ const status=document.querySelector('#status');
 async function request(path,method,body) {
   const response=await fetch('/v1/hubs/'+hubId+'/'+path,{method,credentials:'same-origin',
     headers:{'content-type':'application/json','x-csrf-token':csrf},body:body===undefined?undefined:JSON.stringify(body)});
-  if(!response.ok)throw new Error(response.status===401?'Please sign in again.':response.status===409?'The change conflicts with the current state. Refresh and review it.':'Your change could not be saved. Please try again.');
+  if(!response.ok)throw new Error(response.status===401?'Please sign in again.':response.status===403?'Please refresh the page or sign in again, then retry.':response.status===409?'The change conflicts with the current state. Refresh and review it.':'Your change could not be saved. Please try again.');
   return response.json();
 }
 async function saveConsents(form,onlyGrants=false) {
@@ -70,6 +70,17 @@ for(const button of document.querySelectorAll('.remove-member,.revoke-invitation
   button.disabled=true;
   try{await request('organisations/'+orgId+'/'+(button.dataset.userId?'members/'+button.dataset.userId:'invitations/'+button.dataset.id),'DELETE');window.location.reload();}
   catch(error){status.textContent=error.message;}finally{button.disabled=false;}
+});
+document.querySelector('#link-method')?.addEventListener('click',async event=>{
+  const button=event.currentTarget;button.disabled=true;
+  try{const started=await request('account/links','POST',{slug});window.location.assign(started.location);}
+  catch(error){status.textContent=error.message;button.disabled=false;}
+});
+for(const button of document.querySelectorAll('.unlink-method'))button.addEventListener('click',async()=>{
+  if(!window.confirm('Remove this sign-in method? You will be signed out on your other devices.'))return;
+  button.disabled=true;
+  try{await request('account/links','DELETE',{issuer:button.dataset.issuer,subject:button.dataset.subject});window.location.reload();}
+  catch(error){status.textContent=error.message;button.disabled=false;}
 });
 formHandler('join',async form=>{await request('join','POST');await saveConsents(form,true);window.location.assign('/h/'+slug+'/member');});
 document.querySelector('#logout')?.addEventListener('click',async()=>{

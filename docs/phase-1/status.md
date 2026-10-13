@@ -256,10 +256,34 @@ See [domain setup](domains.md). Ownership proof does not provision TLS, routing,
 OIDC callbacks or trusted browser origins. Rate limits, ownership rechecks,
 claim cleanup and domain transfers remain deployment/lifecycle work.
 
+## Tenth implemented slice: explicit account linking
+
+Signed-in users can add and remove sign-in methods from a new account screen
+(`/h/{slug}/account`) and `GET/POST/DELETE /v1/hubs/{hub}/account/links`.
+Linking needs a browser session established within 10 minutes and a fresh
+provider sign-in (`prompt=login`). The callback must return to that same live
+session, never provisions an account, and reports `linked`, `unchanged` or
+`conflict`. Identities owned by another account are never moved or merged.
+
+Migration 013 adds function-only link/unlink operations owned by
+`plinth_auth_executor`, an append-only `identity.account_events` history readable
+only by its user, and session `created_at` reporting. Removal needs a recent
+session, cannot remove the last method (serialised by an account lock), and ends
+the account's other sessions.
+
+Validation: `npm run verify` passed 161 checks, including five new hosted-link
+unit tests; the full PostgreSQL 17 suite passed 95 checks (seven new) on three
+consecutive runs. Coverage includes executor ownership and runtime denial,
+policy-audit detection, CSRF/bearer/recency/hub boundaries, conflict refusal,
+aged-out and missing-session callbacks, other-session revocation, last-method
+protection and concurrent removal. Real-provider `prompt=login` behaviour is not
+yet verified. Apply migration 013 after 012 on existing databases.
+See [account linking](account-linking.md).
+
 ## Remaining Phase 1 scope
 
 Managed provider selection/configuration and real hosted sign-in verification;
-explicit account-linking workflow; new-account/email invitations and enterprise
+new-account/email invitations and enterprise
 organisation verification; real DNS acceptance, TLS/custom-host
 routing and browser UAT; shared staging branding storage and lifecycle operations.
 Notice retirement, enterprise-scale history pagination and retention/deletion
@@ -269,12 +293,12 @@ The existing identity/membership tables are a starting point, not acceptance of
 the full global account model. Auth-provider setup requires an actual tenant and
 configuration. No production payment/video integration has been introduced.
 
-Next implementation slice: explicit account linking.
+Next implementation slice: not yet selected from the remaining scope above.
 Overall Phase 0 external gates remain open.
 
 ## Re-verification — 13 October 2026
 
-No code has changed since slice nine (commit 5e12d2f). `npm run verify` passed 149
+This re-verification preceded slice ten; no code had changed since slice nine (commit 5e12d2f). `npm run verify` passed 149
 checks with no failures. `npm run test:db` passed all 88 checks against local
 PostgreSQL 17 on four of five consecutive runs; the first run, immediately after
 container start, failed an uncaptured assertion. Watch for a recurrence. Hosted CI
