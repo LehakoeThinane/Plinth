@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { HostedSignIn } from '../src/modules/identity/hosted-sign-in.js';
+import { HostedSignIn,clearLoginCookie } from '../src/modules/identity/hosted-sign-in.js';
 import { BrowserSessions } from '../src/modules/identity/browser-sessions.js';
 import { providerFixture } from './oidc-fixture.js';
 const hub={id:'00000000-0000-4000-8000-000000000001',slug:'learn'};
@@ -8,7 +8,7 @@ async function fixture() {
   const provider=await providerFixture(),attempts=new Map(),rows=new Map();let resolves=0,time=Date.now();
   const store={storeLogin:async(k,v)=>attempts.set(k,v),consumeLogin:async(k,origin)=>{
     const v=attempts.get(k);if(!v||v.origin!==origin||v.expiresAt.getTime()<=time)return null;attempts.delete(k);return v;
-  },store:async(k,v)=>rows.set(k,v),read:async k=>rows.get(k),delete:async k=>rows.delete(k)};
+  },store:async(k,v)=>rows.set(k,{...v,createdAt:new Date(time)}),read:async k=>rows.get(k),delete:async k=>rows.delete(k)};
   const sessions=new BrowserSessions({store,originForHub:async id=>id===hub.id?'https://learn.example':null,now:()=>time});
   const signIn=new HostedSignIn({configuration:provider.configuration,store,sessions,now:()=>time,
     resolveUser:async(iss,sub)=>{assert.equal(iss,'https://identity.example');assert.equal(sub,'subject-a');resolves++;return hub.id;}});
@@ -52,4 +52,51 @@ for(const [name,options] of Object.entries({nonce:{overrides:{nonce:'wrong'}},au
 test('arbitrary destinations and untrusted hosts cannot start login',async()=>{
   const f=await fixture();await assert.rejects(f.signIn.begin({headers:{host:'learn.example'}},hub,'https://evil.example'),{status:400});
   await assert.rejects(f.signIn.begin({headers:{host:'evil.example'}},hub),{status:401});
+});
+async function linkFixture(outcome='linked') {
+  const provider=await providerFixture(),attempts=new Map(),rows=new Map(),links=[];let time=Date.now(),resolves=0;
+  const store={storeLogin:async(k,v)=>attempts.set(k,v),consumeLogin:async(k,origin)=>{
+    const v=attempts.get(k);if(!v||v.origin!==origin)return null;attempts.delete(k);return v;
+  },store:async(k,v)=>rows.set(k,{...v,createdAt:new Date(time)}),read:async k=>rows.get(k),delete:async k=>rows.delete(k)};
+  const sessions=new BrowserSessions({store,originForHub:async id=>id===hub.id?'https://learn.example':null,now:()=>time});
+  const signIn=new HostedSignIn({configuration:provider.configuration,store,sessions,now:()=>time,
+    resolveUser:async()=>{resolves++;return null;},linkIdentity:async(...args)=>{links.push(args);return outcome;}});
+  const userId='00000000-0000-4000-8000-0000000000aa';
+  const session=await sessions.establishFromCallback({headers:{host:'learn.example'}},hub.id,{userId,expiresAt:new Date(time+3600000)});
+  const req={headers:{host:'learn.example',cookie:session.cookie.split(';')[0]}};
+  const principal=await sessions.principal(req);
+  return {provider,signIn,sessions,req,principal,links,rows,attempts,userId,get resolves(){return resolves;},advance:ms=>{time+=ms;}};
+}
+const withLogin=(req,start)=>({headers:{...req.headers,cookie:req.headers.cookie+'; '+start.cookies[0].split(';')[0]}});
+test('linking re-prompts the provider and attaches the verified identity to the same session account',async()=>{
+  const f=await linkFixture(),start=await f.signIn.beginLink(f.req,hub,f.principal);
+  assert.equal(new URL(start.location).searchParams.get('prompt'),'login');
+  const result=await f.signIn.complete(withLogin(f.req,start),f.provider.authorize(start.location,{overrides:{sub:'subject-b'}}));
+  assert.equal(result.location,'/h/learn/account?link=linked');assert.deepEqual(result.cookies,[clearLoginCookie]);
+  assert.deepEqual(f.links,[[f.principal.sessionHash,'https://identity.example','subject-b']]);
+  assert.equal(f.resolves,0);assert.equal(f.rows.size,1);
+});
+test('a conflicting identity is reported without provisioning or replacing the session',async()=>{
+  const f=await linkFixture('conflict'),start=await f.signIn.beginLink(f.req,hub,f.principal);
+  const result=await f.signIn.complete(withLogin(f.req,start),f.provider.authorize(start.location));
+  assert.equal(result.location,'/h/learn/account?link=conflict');assert.equal(f.resolves,0);assert.equal(f.rows.size,1);
+});
+test('linking requires a recent session and cannot start from another hub',async()=>{
+  const f=await linkFixture();f.advance(601000);
+  await assert.rejects(f.signIn.beginLink(f.req,hub,await f.sessions.principal(f.req)),{status:403,reauthenticate:true});
+  await assert.rejects(f.signIn.beginLink(f.req,{...hub,id:'00000000-0000-4000-8000-000000000009'},f.principal),{status:401});
+  assert.equal(f.attempts.size,0);
+});
+test('a link callback without the starting session fails before token exchange',async()=>{
+  const f=await linkFixture(),start=await f.signIn.beginLink(f.req,hub,f.principal);
+  const loginOnly={headers:{host:'learn.example',cookie:start.cookies[0].split(';')[0]}};
+  await assert.rejects(f.signIn.complete(loginOnly,f.provider.authorize(start.location)),{status:401});
+  assert.equal(f.provider.calls,0);assert.equal(f.links.length,0);assert.equal(f.resolves,0);
+});
+test('a replaced session cannot finish a link started by its predecessor',async()=>{
+  const f=await linkFixture(),start=await f.signIn.beginLink(f.req,hub,f.principal);
+  const replaced=await f.sessions.establishFromCallback(f.req,hub.id,{userId:f.userId,expiresAt:new Date(Date.now()+3600000)});
+  const req={headers:{host:'learn.example',cookie:replaced.cookie.split(';')[0]+'; '+start.cookies[0].split(';')[0]}};
+  await assert.rejects(f.signIn.complete(req,f.provider.authorize(start.location)),{status:401});
+  assert.equal(f.links.length,0);
 });

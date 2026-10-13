@@ -1,6 +1,7 @@
 import { escapeText as e } from './storefront.js';
 import { renderOrganisations } from './organisation-shell.js';
-export function renderApplicationShell({hub,view,membership,consents,csrfToken,account,organisation,publications=[],brandingEnabled=false,domains}) {
+import { renderAccount } from './account-shell.js';
+export function renderApplicationShell({hub,view,membership,consents,csrfToken,account,signIn,organisation,orgDomains,publications=[],brandingEnabled=false,domains}) {
   const choices=consents.map(c=>`<label class="choice"><input type="checkbox" name="${e(c.purpose)}" data-purpose="${e(c.purpose)}" data-version="${e(c.notice_version)}"${c.granted?' checked':''}>
     <span><strong>${e(c.purpose.replaceAll('_',' '))}</strong><br>${e(c.notice_text)}</span></label>`).join('');
   const consentForm=`<form id="consents"><h2>Your consent choices</h2><p>These choices apply only to ${e(hub.display_name)}. You can withdraw them here.</p>${choices||'<p>No optional consent choices are available.</p>'}${choices?'<button type="submit">Save choices</button>':''}</form>`;
@@ -15,7 +16,7 @@ export function renderApplicationShell({hub,view,membership,consents,csrfToken,a
   const domainAdmin=domains?`<section><h2>Custom domain ownership</h2><p>Verify DNS ownership here. HTTPS and domain activation are arranged separately.</p>
     <form id="domain-request"><label>Hostname<input name="hostname" maxlength="232" placeholder="learn.yourcompany.co.za" required></label><button>Create or replace DNS proof</button></form>
     <p id="domain-proof" role="status"></p><ul>${domains.claims.map(d=>`<li>${e(d.hostname)} · proof expires ${e(d.expires_at)} <button class="verify-domain" data-hostname="${e(d.hostname)}">Check DNS</button> <button class="remove-domain" data-hostname="${e(d.hostname)}">Remove</button></li>`).join('')}${domains.verified.map(d=>`<li>${e(d.hostname)} · ownership verified <button class="remove-domain" data-hostname="${e(d.hostname)}">Remove</button></li>`).join('')}</ul></section>`:'';
-  const content=view==='organisations'?renderOrganisations({hub,account,organisation}):view==='create-hub'?`<h1>Create a learning hub</h1><form id="create-hub">
+  const content=view==='organisations'?renderOrganisations({hub,account,organisation,orgDomains}):view==='account'?renderAccount({hub,account,signIn}):view==='create-hub'?`<h1>Create a learning hub</h1><form id="create-hub">
     <label>Hub name<input name="displayName" maxlength="200" required></label>
     <label>Hub address<input name="slug" minlength="3" maxlength="63" pattern="[a-z0-9]+(-[a-z0-9]+)*" required aria-describedby="slug-help"></label>
     <p id="slug-help">Use lowercase letters, numbers and single hyphens.</p><button type="submit">Create hub</button></form>`:
@@ -42,6 +43,7 @@ button{font:inherit;padding:10px 16px;border-radius:6px;border:0;background:#245
 <a href="/h/${e(hub.slug)}">${e(hub.display_name)}</a><a href="/h/${e(hub.slug)}/member">Member area</a>
 <a href="/h/${e(hub.slug)}/create-hub">Create a hub</a>
 <a href="/h/${e(hub.slug)}/organisations">Organisations</a>
+<a href="/h/${e(hub.slug)}/account">Account</a>
 ${membership && ['owner','admin'].includes(membership.role)?`<a href="/h/${e(hub.slug)}/admin">Hub admin</a>`:''}
 <button type="button" id="logout">Sign out</button></nav></header><main>${content}<p id="status" role="status" aria-live="polite"></p></main></body></html>`;
 }

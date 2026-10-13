@@ -7,7 +7,7 @@ import { TenantDatabase } from '../src/db/tenant.js';
 import { auditPolicies } from '../src/db/policy-audit.js';
 import { ConsentRepository } from '../src/db/consent-repository.js';
 import { IdentityRepository } from '../src/db/identity-repository.js';
-import { createApplication } from '../src/app.js';
+import { createApplication,accountLinksFor } from '../src/app.js';
 import { HubRepository } from '../src/db/hub-repository.js';
 import { AuthRepository } from '../src/db/auth-repository.js';
 import { BrowserSessions } from '../src/modules/identity/browser-sessions.js';
@@ -20,6 +20,8 @@ import { organisationChecks } from './organisation-workflows.js';
 import { noticeChecks } from './notice-workflows.js';
 import { logoChecks } from './logo-workflows.js';
 import { domainChecks } from './domain-workflows.js';
+import { accountLinkChecks } from './account-link-workflows.js';
+import { organisationDomainChecks } from './org-domain-workflows.js';
 import { LocalBrandingStore } from '../src/storage/local-branding.js';
 import { mkdir,mkdtemp,rm } from 'node:fs/promises';
 import { resolve,relative,isAbsolute } from 'node:path';
@@ -28,7 +30,9 @@ import { resolve,relative,isAbsolute } from 'node:path';
 function fetch(url,options={}) {
   if(!options.headers?.host)return globalThis.fetch(url,options);
   return new Promise((resolve,reject)=>{
-    const req=httpRequest(url,{method:options.method??'GET',headers:options.headers},res=>{
+    // Node does not frame DELETE bodies by default, so always declare the length.
+    const headers=options.body===undefined?options.headers:{...options.headers,'content-length':Buffer.byteLength(options.body)};
+    const req=httpRequest(url,{method:options.method??'GET',headers},res=>{
       const chunks=[];res.on('data',chunk=>chunks.push(chunk));res.on('error',reject);
       res.on('end',()=>resolve(new Response(Buffer.concat(chunks),{status:res.statusCode,headers:res.headers})));
     });
@@ -257,13 +261,14 @@ try {
   const managedAuthenticate=createManagedAuthenticator({issuer,audience:'plinth-api',algorithms:['ES256'],keySet:createLocalJWKSet({keys:[authJwk]}),resolveUser:(iss,sub)=>authRepository.resolveUser(iss,sub)});
   const provider=await providerFixture(issuer);
   const hostedSignIn=new HostedSignIn({configuration:provider.configuration,store:authRepository,sessions:browserSessions,
-    resolveUser:(iss,sub)=>authRepository.resolveUser(iss,sub)});
-  server=createApplication({pool:app,cache,browserSessions,hostedSignIn,brandingStore,domainVerificationPool:domains,resolveDomainTxt:async name=>domainRecords.get(name)??[],authenticate:async token=>token==='learner-a'?{userId:userA,expiresAt:new Date(Date.now()+600000)}:token==='learner-b'?{userId:userB,expiresAt:new Date(Date.now()+600000)}:managedAuthenticate(token)});
+    resolveUser:(iss,sub)=>authRepository.resolveUser(iss,sub),linkIdentity:(session,iss,sub)=>authRepository.linkIdentity(session,iss,sub)});
+  server=createApplication({pool:app,cache,browserSessions,hostedSignIn,accountLinks:accountLinksFor(hostedSignIn,authRepository),brandingStore,domainVerificationPool:domains,resolveDomainTxt:async name=>domainRecords.get(name)??[],authenticate:async token=>token==='learner-a'?{userId:userA,expiresAt:new Date(Date.now()+600000)}:token==='learner-b'?{userId:userB,expiresAt:new Date(Date.now()+600000)}:managedAuthenticate(token)});
   server.listen(0,'127.0.0.1');await once(server,'listening');
   const base='http://127.0.0.1:'+server.address().port;
   const url=base+'/v1/hubs/'+a+'/lessons/'+lesson+'/access';
   const headers={authorization:'Bearer learner-a'};
   const {orgId:createdOrg,owner:organisationsA,other:organisationsB}=await organisationChecks({admin,app,db,a,b,userA,userB,check,testOrgs,testUsers,embeddedMode});
+  await organisationDomainChecks({admin,app,domains,db,a,userA,userB,orgId:createdOrg,check,base,fetch,records:domainRecords,testOrgs});
   await check('login storage is function-only, validates expiry and consumes once under concurrent callbacks',async()=>{
     for(const connection of [app,auth])await assert.rejects(connection.query('SELECT * FROM identity.login_attempts'),e=>e.code==='42501');
     await assert.rejects(app.query('SELECT * FROM app.consume_login_attempt($1,$2)',['1'.repeat(64),'https://learn-a.example']),{code:'42501'});
@@ -316,6 +321,7 @@ try {
     assert.equal((await fetch(url,{headers:{authorization:'Bearer '+rejected}})).status,401);
     assert.equal((await admin.query('SELECT * FROM identity.auth_links WHERE issuer=$1 AND subject=$2',[issuer,'must-not-provision'])).rows.length,0);
   });
+  await accountLinkChecks({admin,app,auth,db,a,b,userA,userB,issuer,authRepository,provider,base,fetch,check});
   let createdHub,createdSlug;
   await check('HTTP creates a hub with an owner and rejects duplicate slugs',async()=>{
     const slug='new-'+randomUUID(),body=JSON.stringify({slug,displayName:'Created Hub',role:'admin',userId:userB});
@@ -502,12 +508,15 @@ try {
   await admin.query('DELETE FROM identity.login_attempts WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM tenancy.domain_claims WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM identity.auth_sessions WHERE hub_id=ANY($1::uuid[])',[testHubs]);
+  await admin.query('DELETE FROM identity.org_domain_claims WHERE org_id=ANY($1::uuid[])',[testOrgs]);
+  await admin.query('DELETE FROM identity.org_domains WHERE org_id=ANY($1::uuid[])',[testOrgs]);
   await admin.query('DELETE FROM identity.org_invitations WHERE org_id=ANY($1::uuid[])',[testOrgs]);
   await admin.query('DELETE FROM identity.org_events WHERE org_id=ANY($1::uuid[])',[testOrgs]);
   await admin.query('DELETE FROM compliance.consent_events WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM compliance.notice_publications WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM compliance.consents WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM compliance.consent_purposes WHERE hub_id=ANY($1::uuid[])',[testHubs]);
+  await admin.query('DELETE FROM identity.account_events WHERE user_id=ANY($1::uuid[])',[testUsers]);
   await admin.query('DELETE FROM identity.auth_links WHERE user_id=ANY($1::uuid[])',[testUsers]);
   await admin.query('DELETE FROM identity.auth_issuers WHERE issuer=$1',[issuer]);
   await admin.query('DELETE FROM identity.sso_configurations WHERE org_id=ANY($1::uuid[])',[[orgA,orgB]]);

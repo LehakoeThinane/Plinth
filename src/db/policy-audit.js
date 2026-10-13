@@ -30,10 +30,13 @@ export async function auditPolicies(client) {
           WHEN 'organisations' THEN 'member_scope'
           WHEN 'sso_configurations' THEN 'admin_scope'
           WHEN 'org_invitations' THEN 'executor_scope'
-          WHEN 'org_events' THEN 'executor_scope' ELSE 'self_scope' END) AS scope_policy
+          WHEN 'org_events' THEN 'executor_scope'
+          WHEN 'org_domain_claims' THEN 'executor_scope'
+          WHEN 'org_domains' THEN 'member_scope' ELSE 'self_scope' END) AS scope_policy
     FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
     WHERE n.nspname='identity' AND c.relkind IN ('r','p')
-      AND c.relname IN ('users','org_members','organisations','auth_links','sso_configurations','org_invitations','org_events')
+      AND c.relname IN ('users','org_members','organisations','auth_links','sso_configurations','org_invitations','org_events','account_events',
+        'org_domain_claims','org_domains')
   `);
   // Before migration 004 the baseline has two global identity tables.
   const unsafeIdentity=identity.rows.filter(r=>!r.enabled||!r.forced||!r.scope_policy||Number(r.permissive_count)!==1);
