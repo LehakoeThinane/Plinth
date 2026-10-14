@@ -27,6 +27,30 @@ export class PostgresAccessRepository {
             WHERE l.hub_id=$1 AND l.id=$2`,[hubId,id])).rows[0];
           return row?{id:row.id,title:row.title,summary:row.summary,productId:row.product_id,productTitle:row.product_title,body:row.body??''}:null;
         },
+        getProgress:async lessonId=>{
+          const row=(await tx.query(`SELECT revision,furthest_position,resume_position,completed,completed_at FROM content.lesson_progress
+            WHERE hub_id=$1 AND user_id=$2 AND lesson_id=$3`,[hubId,this.userId,lessonId])).rows[0];
+          return row?{revision:Number(row.revision),furthestPosition:row.furthest_position,resumePosition:row.resume_position,completed:row.completed,completedAt:row.completed_at}:null;
+        },
+        lockProgress:async lessonId=>{
+          const row=(await tx.query(`SELECT revision,furthest_position,resume_position,completed FROM content.lesson_progress
+            WHERE hub_id=$1 AND user_id=$2 AND lesson_id=$3 FOR UPDATE`,[hubId,this.userId,lessonId])).rows[0];
+          return row?{revision:Number(row.revision),furthestPosition:row.furthest_position,resumePosition:row.resume_position,completed:row.completed}:null;
+        },
+        writeProgress:async(lessonId,state,isNew)=>{
+          if(isNew)await tx.query(`INSERT INTO content.lesson_progress(hub_id,user_id,lesson_id,boundary_id,revision,furthest_position,resume_position,completed)
+            SELECT hub_id,$2,id,boundary_id,$4,$5,$6,$7 FROM catalogue.lessons WHERE hub_id=$1 AND id=$3`,
+            [hubId,this.userId,lessonId,state.revision,state.furthestPosition,state.resumePosition,state.completed]);
+          else await tx.query(`UPDATE content.lesson_progress SET revision=$4,furthest_position=$5,resume_position=$6,completed=$7
+            WHERE hub_id=$1 AND user_id=$2 AND lesson_id=$3`,[hubId,this.userId,lessonId,state.revision,state.furthestPosition,state.resumePosition,state.completed]);
+        },
+        findProgressRequest:async key=>{
+          const row=(await tx.query('SELECT request_hash,response FROM content.progress_requests WHERE hub_id=$1 AND user_id=$2 AND idempotency_key=$3',[hubId,this.userId,key])).rows[0];
+          return row?{requestHash:row.request_hash,response:row.response}:null;
+        },
+        storeProgressRequest:async(key,hash,response)=>{
+          await tx.query('INSERT INTO content.progress_requests(hub_id,user_id,idempotency_key,request_hash,response) VALUES($1,$2,$3,$4,$5::jsonb)',[hubId,this.userId,key,hash,JSON.stringify(response)]);
+        },
         getVersions:async id=>{assertUser(id);const r=(await tx.query('SELECT u.access_version,h.access_epoch FROM identity.users u CROSS JOIN tenancy.hubs h WHERE u.id=$1 AND h.id=$2',[id,hubId])).rows[0];return r?{userVersion:r.access_version,hubEpoch:r.access_epoch}:null;},
         getAccessSummary:async id=>{
           assertUser(id);

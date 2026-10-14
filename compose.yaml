@@ -27,6 +27,7 @@ services:
       - ./db/migrations/015-notice-retirement.sql:/docker-entrypoint-initdb.d/15-notice-retirement.sql:ro
       - ./db/migrations/016-catalogue.sql:/docker-entrypoint-initdb.d/16-catalogue.sql:ro
       - ./db/migrations/017-lesson-content.sql:/docker-entrypoint-initdb.d/17-lesson-content.sql:ro
+      - ./db/migrations/018-progress.sql:/docker-entrypoint-initdb.d/18-progress.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U plinth_admin -d plinth"]
       interval: 5s

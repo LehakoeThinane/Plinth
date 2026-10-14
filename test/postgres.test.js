@@ -389,7 +389,7 @@ try {
   await logoChecks({admin,app,db,hubId:createdHub,otherHub:a,userA,check,embeddedMode,base,fetch,slug:createdSlug,store:brandingStore});
   await domainChecks({admin,app,domains,db,hubId:createdHub,otherHub:a,userA,userB,check,embeddedMode,base,fetch,slug:createdSlug,records:domainRecords});
   await catalogueChecks({admin,app,db,hubId:createdHub,otherHub:a,userA,userB,companyOrg:orgA,check,base,fetch,slug:createdSlug,embeddedMode});
-  await lessonChecks({admin,db,hubId:createdHub,userA,userB,companyOrg:orgA,check,base,fetch,slug:createdSlug,testUsers});
+  await lessonChecks({admin,db,hubId:createdHub,userA,userB,companyOrg:orgA,check,base,fetch,slug:createdSlug,testUsers,embeddedMode});
   const browserHeaders={host:'learn-a.example',origin:'https://learn-a.example'};
   await check('browser session exchange requires a verified bearer and exact trusted origin',async()=>{
     const sessionUrl=base+'/v1/hubs/'+a+'/session';
@@ -514,6 +514,8 @@ try {
   try {
   await admin.query('DELETE FROM identity.login_attempts WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM content.lesson_bodies WHERE hub_id=ANY($1::uuid[])',[testHubs]);
+  await admin.query('DELETE FROM content.lesson_progress WHERE hub_id=ANY($1::uuid[])',[testHubs]);
+  await admin.query('DELETE FROM content.progress_requests WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM tenancy.domain_claims WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM identity.auth_sessions WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM identity.org_domain_claims WHERE org_id=ANY($1::uuid[])',[testOrgs]);

@@ -1,3 +1,7 @@
+import { createHash } from 'node:crypto';
+import { mergeProgress } from './progress.js';
+const maxPosition = 10000000;
+const rejected = status => Object.assign(new Error('Progress rejected'), { status });
 /**
  * The repository must run withSnapshot in a tenant-scoped, consistent DB snapshot.
  * getTargetChain returns [target, ...ancestors], including every access parent.
@@ -39,8 +43,51 @@ export class AccessService {
         const { body, ...preview } = lesson;
         return { ...decision, lesson: preview };
       }
-      return { decision: 'allowed', lesson };
+      const progress = userId ? await snapshot.getProgress(lessonId) : null;
+      return { decision: 'allowed', lesson: { ...lesson, progress } };
     });
+  }
+
+  /** Saves progress only for a lesson the learner can open now, decided in the
+   * same transaction. A retried request with the same idempotency key returns
+   * the stored result; the same key with a different payload is a conflict.
+   */
+  async recordProgress({ hubId, userId, lessonId, update, idempotencyKey }) {
+    if (!userId) throw rejected(401);
+    if (typeof idempotencyKey !== 'string' || !/^[A-Za-z0-9_-]{8,100}$/.test(idempotencyKey)) throw rejected(400);
+    const fields = { baseRevision: update?.baseRevision, furthestPosition: update?.furthestPosition,
+      resumePosition: update?.resumePosition, completed: update?.completed };
+    if ([fields.furthestPosition, fields.resumePosition].some(p => typeof p !== 'number' || p > maxPosition)) throw rejected(400);
+    const requestHash = createHash('sha256').update(JSON.stringify({ lessonId, ...fields })).digest('hex');
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this.repository.withSnapshot(hubId, async (snapshot) => {
+          const replay = await snapshot.findProgressRequest(idempotencyKey);
+          if (replay) {
+            if (replay.requestHash !== requestHash) throw rejected(409);
+            return replay.response;
+          }
+          const chain = await snapshot.getTargetChain(lessonId);
+          if (!chain?.length || chain.some(row => row.hubId !== hubId)) throw rejected(404);
+          const summary = await this.freshSummary(snapshot, hubId, userId);
+          if (this.evaluate(chain, summary, 'content').decision !== 'allowed') throw rejected(404);
+          const current = await snapshot.lockProgress(lessonId) ??
+            { revision: 0, furthestPosition: 0, resumePosition: 0, completed: false };
+          let merged;
+          try { merged = mergeProgress(current, fields); } catch { throw rejected(400); }
+          await snapshot.writeProgress(lessonId, merged.state, current.revision === 0);
+          // A stale resume change is reported, never silently treated as applied.
+          const response = { progress: merged.state, resumeConflict: merged.resumeConflict };
+          await snapshot.storeProgressRequest(idempotencyKey, requestHash, response);
+          return response;
+        });
+      } catch (error) {
+        // Concurrent saves of one lesson or key: retry; the replay check then answers.
+        if (['40001', '40P01', '23505'].includes(error.code) && attempt < 2) continue;
+        if (['40001', '40P01', '23505'].includes(error.code)) throw rejected(409);
+        throw error;
+      }
+    }
   }
 
   async freshSummary(snapshot, hubId, userId) {

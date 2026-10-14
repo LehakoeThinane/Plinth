@@ -52,7 +52,26 @@ escaped rendering. Two test fixes: cleanup now removes lesson bodies before
 users, and a notice-history check no longer assumes cross-transaction clock
 order. See [lesson content](lessons.md).
 
+## Fourth implemented slice: progress and My learning
+
+Learners can save lesson progress and see their courses. `PUT
+/v1/hubs/{hub}/lessons/{id}/progress` decides access and writes in one
+transaction, locks the progress row, applies the existing merge rules (forward-only
+completion and furthest position, reportable resume conflicts) and stores
+idempotency keys checked against the payload. The **My learning** page lists held
+and started products with completion and a Continue link; lesson pages gain
+**Mark as complete** for signed-in learners. Migration 018 adds the progress and
+idempotency tables under per-learner RLS with a forward-only trigger.
+
+Validation: `npm run verify` passed 194 checks; the full PostgreSQL 17 suite
+passed 125 checks (five new) on three consecutive runs. Coverage includes
+access-gated saves, replay and key-reuse handling, forward-only merging and
+stale resume conflicts, database refusal of backward or cross-learner writes,
+concurrent same-key saves applying once, learning-list inclusion and
+revocation, and HTTP identity/CSRF/key requirements. See
+[lesson content and progress](lessons.md).
+
 ## Next
 
-1. Progress saving and a learner "my learning" view.
-2. Protected file assets (needs storage) and checkout (needs the payment provider decision).
+1. Protected file assets (needs storage) and checkout (needs the payment provider decision).
+2. Locally buildable: an access log of lesson opens and idempotency-record pruning.

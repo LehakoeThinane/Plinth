@@ -1,9 +1,9 @@
 // Static browser code. Credentials remain in HttpOnly cookies, never storage.
-const {hubId,slug,csrf,orgId,productId}=document.body.dataset;
+const {hubId,slug,csrf,orgId,productId,lessonId,revision}=document.body.dataset;
 const status=document.querySelector('#status');
-async function request(path,method,body) {
+async function request(path,method,body,headers={}) {
   const response=await fetch('/v1/hubs/'+hubId+'/'+path,{method,credentials:'same-origin',
-    headers:{'content-type':'application/json','x-csrf-token':csrf},body:body===undefined?undefined:JSON.stringify(body)});
+    headers:{'content-type':'application/json','x-csrf-token':csrf,...headers},body:body===undefined?undefined:JSON.stringify(body)});
   if(!response.ok)throw Object.assign(new Error(response.status===401?'Please sign in again.':response.status===403?'Please refresh the page or sign in again, then retry.':response.status===409?'The change conflicts with the current state. Refresh and review it.':'Your change could not be saved. Please try again.'),{status:response.status});
   return response.json();
 }
@@ -111,6 +111,17 @@ document.querySelector('#publish-product')?.addEventListener('click',async event
   button.disabled=true;
   try{await request(product('/publish'),'POST');window.location.reload();}
   catch(error){status.textContent=error.status===409?'Add at least one lesson, and an active price for paid products, before publishing.':error.message;button.disabled=false;}
+});
+document.querySelector('#complete-lesson')?.addEventListener('click',async event=>{
+  const button=event.currentTarget;button.disabled=true;
+  // One key per attempt: a retried send of the same click is answered from the stored result.
+  const key=crypto.randomUUID();
+  const update={baseRevision:Number(revision),furthestPosition:1,resumePosition:1,completed:true};
+  for(let attempt=0;attempt<3;attempt++) {
+    try{await request('lessons/'+lessonId+'/progress','PUT',update,{'idempotency-key':key});window.location.reload();return;}
+    catch(error){if(error.status&&error.status<500){status.textContent=error.message;break;}status.textContent='Connection problem; retrying…';}
+  }
+  button.disabled=false;
 });
 formHandler('create-organisation',async form=>{const org=await request('organisations','POST',Object.fromEntries(new FormData(form)));window.location.assign('/h/'+slug+'/organisations?org='+org.id);});
 formHandler('rename-organisation',form=>request('organisations/'+orgId,'PUT',Object.fromEntries(new FormData(form))));

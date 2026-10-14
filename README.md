@@ -22,7 +22,7 @@ are still pending.
 - A separate metadata-only public listing operation.
 - Recipient authorisation at message delivery, including suspension and company removal.
 - Progress conflict handling: monotonic completion/furthest position, independently mutable resume position.
-- Sixteen domain regression cases (`npm test`); the full local suite is 189 checks (`npm run verify`).
+- Sixteen domain regression cases (`npm test`); the full local suite is 194 checks (`npm run verify`).
 
 ## Run tests
 
@@ -36,7 +36,7 @@ The cache adapter must enforce its TTL. Cache failures fall back to the database
 
 The gateway must call recipients immediately before routing each event and send only to returned recipients. This is a conservative DB-backed implementation, not a five-minute poll. Conversation participation must be read authoritatively; ordinary hub conversations are not automatically tied to a course seat. Space authorisation must additionally use its own inherited access requirements.
 
-The progress persistence adapter must lock the learner/lesson row (or use an atomic revision predicate and retry), apply mergeProgress, and commit atomically. It must persist idempotency keys with request payload validation to return the same result for a retry. The helper itself does not provide persistence or network idempotency. Server-side lesson-duration validation and completion criteria remain to be defined. Rejected stale resume changes should be reconciled in the client rather than silently reported as a successful resume update.
+Progress persistence is implemented (Phase 2): saves lock the learner/lesson row, apply mergeProgress and commit atomically after an access decision in the same transaction, with idempotency keys validated against the request payload; stale resume changes are reported as `resumeConflict` for the client to reconcile. See [lesson content and progress](docs/phase-2/lessons.md). Server-side lesson-duration validation and video completion criteria remain to be defined.
 
 Still to build: the complete product schema beyond the initial migrations, other target adapters, managed authentication integration, outbox relay/gateway, token renewal integration, storefront and learner UI, payments, seat-grant audit records, deletion/retention policy, and browser offline-queue fault tests. The tests here exercise domain behaviour with a fake repository; they do not prove PostgreSQL policies or Mux playback behaviour.
 
@@ -56,7 +56,7 @@ The continuation adds six HTTP tests (npm run test:http). These verify routing/a
 
 ## Database verification without Docker
 
-Run npm run test:db:embedded. All 120 embedded SQL/RLS and database-backed HTTP checks pass. Full PostgreSQL 17 integration is still a separate CI requirement; the test-only embedded runner does not validate concurrent independent connections.
+Run npm run test:db:embedded. All 125 embedded SQL/RLS and database-backed HTTP checks pass. Full PostgreSQL 17 integration is still a separate CI requirement; the test-only embedded runner does not validate concurrent independent connections.
 
 ## Current Phase 0 status
 
@@ -73,7 +73,7 @@ Terraform staging/state-bootstrap configurations are now available and provider-
 
 Hub owners/admins can author products with modules, lessons and ZAR prices and
 publish them from admin screens to a public shelf at `/h/{slug}`, with product pages at
-`/h/{slug}/products/{id}`. Company products stay private to their organisation. Lessons carry written content that opens after an access check: free lessons signed out, paid ones for buyers, with locked previews otherwise.
+`/h/{slug}/products/{id}`. Company products stay private to their organisation. Lessons carry written content that opens after an access check: free lessons signed out, paid ones for buyers, with locked previews otherwise. Learners save progress and see their courses on a My learning page.
 See [Phase 2 status](docs/phase-2/status.md) and [catalogue](docs/phase-2/catalogue.md).
 
 ## Phase 1 (local work complete)
@@ -101,5 +101,5 @@ with fresh provider sign-in and recent-session checks; see
 [account linking](docs/phase-1/account-linking.md).
 See [authentication setup](docs/phase-1/authentication.md).
 `npm run dev` remains a health shell; it does not enable test authentication or
-seed accounts. Apply migrations 003–017 in order to an
+seed accounts. Apply migrations 003–018 in order to an
 existing local database; fresh Compose volumes and CI apply them automatically.

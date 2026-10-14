@@ -29,7 +29,7 @@ async function readObject(req,maxBytes=4096) {
  * No default authenticator, development header override or public token issuer.
  * This endpoint returns an ACCESS DECISION only, never media/content.
  */
-export function createApi({authenticate,accessForPrincipal,consentForPrincipal,noticeForPrincipal,hubForPrincipal,identityForPrincipal,organisationForPrincipal,logoForPrincipal,brandingStore,domainForPrincipal,orgDomainsForPrincipal,catalogueForPrincipal,publicCatalogue,publicHubs,browserSessions,hostedSignIn,accountLinks,onError=()=>{}}) {
+export function createApi({authenticate,accessForPrincipal,consentForPrincipal,noticeForPrincipal,hubForPrincipal,identityForPrincipal,organisationForPrincipal,logoForPrincipal,brandingStore,domainForPrincipal,orgDomainsForPrincipal,catalogueForPrincipal,publicCatalogue,learningForPrincipal,publicHubs,browserSessions,hostedSignIn,accountLinks,onError=()=>{}}) {
   if(typeof authenticate!=='function'||typeof accessForPrincipal!=='function')throw Error('Verified authentication adapter required');
   return createServer(async(req,res)=>{
     const send=(status,body)=>{res.writeHead(status,{'content-type':'application/json','cache-control':'no-store'});res.end(JSON.stringify(body));};
@@ -75,7 +75,7 @@ export function createApi({authenticate,accessForPrincipal,consentForPrincipal,n
         const html=renderApplicationShell({hub,view:adminProducts[2]?'product':'products',membership,catalogue,consents:[],csrfToken:principal.csrfToken});
         res.writeHead(200,htmlHeaders);return res.end(html);
       }
-      const shell=path.match(/^\/h\/([a-z0-9-]+)\/(member|admin|join|create-hub|organisations|account)$/);
+      const shell=path.match(/^\/h\/([a-z0-9-]+)\/(member|admin|join|create-hub|organisations|account|learning)$/);
       if(browserSessions && publicHubs && hubForPrincipal && consentForPrincipal && req.method==='GET' && shell) {
         const hub=await publicHubs.resolve({slug:shell[1]});
         const principal=await browserSessions.principal(req);
@@ -86,17 +86,18 @@ export function createApi({authenticate,accessForPrincipal,consentForPrincipal,n
         if(principal.hubId!==hub.id)return send(404,{error:'not_found'});
         let membership;
         try{membership=await hubForPrincipal(principal).membership(hub.id);}
-        catch(error){if(error.status!==404||!['join','create-hub','organisations','account'].includes(shell[2]))throw error;}
+        catch(error){if(error.status!==404||!['join','create-hub','organisations','account','learning'].includes(shell[2]))throw error;}
         if(shell[2]==='admin' && !['owner','admin'].includes(membership?.role))return send(404,{error:'not_found'});
         const account=['organisations','account'].includes(shell[2])?await identityForPrincipal(principal).account(hub.id):undefined;
         const signIn=shell[2]==='account'?{...await identityForPrincipal(principal).signInMethods(hub.id),
           linkingEnabled:Boolean(accountLinks),recent:isRecentSignIn(principal),outcome:requestUrl.searchParams.get('link')}:undefined;
         const orgId=requestUrl.searchParams.get('org');
         const organisation=account && orgId?await organisationForPrincipal(principal).admin(hub.id,orgId):undefined;
+        const learningView=shell[2]==='learning'&&learningForPrincipal?await learningForPrincipal(principal).learning(hub.id):undefined;
         const orgDomains=organisation&&orgDomainsForPrincipal?await orgDomainsForPrincipal(principal).list(hub.id,orgId):undefined;
         const history=shell[2]==='admin'&&noticeForPrincipal?await noticeForPrincipal(principal).history(hub.id,{before:requestUrl.searchParams.get('notices_before')}):{publications:[],next:null};
         const domains=shell[2]==='admin'&&domainForPrincipal?await domainForPrincipal(principal).list(hub.id):undefined;
-        const html=renderApplicationShell({hub,view:shell[2],membership,account,signIn,organisation,orgDomains,publications:history.publications,olderNotices:history.next,domains,brandingEnabled:Boolean(brandingStore),consents:await consentForPrincipal(principal).list(hub.id),csrfToken:principal.csrfToken});
+        const html=renderApplicationShell({hub,view:shell[2],membership,account,signIn,organisation,orgDomains,learning:learningView,publications:history.publications,olderNotices:history.next,domains,brandingEnabled:Boolean(brandingStore),consents:await consentForPrincipal(principal).list(hub.id),csrfToken:principal.csrfToken});
         res.writeHead(200,htmlHeaders);return res.end(html);
       }
       const storefront=path.match(/^\/h\/([a-z0-9-]+)$/);
@@ -133,7 +134,9 @@ export function createApi({authenticate,accessForPrincipal,consentForPrincipal,n
         const result=await accessForPrincipal(principal??{userId:null}).open({hubId,userId:principal?.userId??null,lessonId});
         if(result.decision==='not_found')return send(404,{error:'not_found'});
         if(lessonApi)return send(200,result);
-        res.writeHead(200,htmlHeaders);return res.end(renderLessonPage(hub,result,{signIn:Boolean(hostedSignIn)}));
+        // Signed-in learners get the CSRF token needed to save progress from the page.
+        const session=principal?.sessionHash?{hubId,csrfToken:principal.csrfToken}:null;
+        res.writeHead(200,htmlHeaders);return res.end(renderLessonPage(hub,result,{signIn:Boolean(hostedSignIn),session}));
       }
       // The shelf is public: company products are hidden by the database boundary.
       const shelf=path.match(/^\/v1\/hubs\/([0-9a-f-]{36})\/products(?:\/([0-9a-f-]{36}))?$/);
@@ -153,6 +156,10 @@ export function createApi({authenticate,accessForPrincipal,consentForPrincipal,n
           org[3]==='invitations'?(org[4]?req.method==='DELETE':req.method==='POST'):
           org[4]&&['PUT','DELETE'].includes(req.method):['GET','PUT'].includes(req.method):req.method==='POST');
       const readAccount=accountRoute && uuid.test(accountRoute[1]) && req.method==='GET';
+      const progress=path.match(/^\/v1\/hubs\/([0-9a-f-]{36})\/lessons\/([0-9a-f-]{36})\/progress$/);
+      const progressRoute=progress && uuid.test(progress[1]) && uuid.test(progress[2]) && req.method==='PUT';
+      const learning=path.match(/^\/v1\/hubs\/([0-9a-f-]{36})\/learning$/);
+      const learningRoute=learningForPrincipal && learning && uuid.test(learning[1]) && req.method==='GET';
       const catalogue=path.match(/^\/v1\/hubs\/([0-9a-f-]{36})\/catalogue\/products(?:\/([0-9a-f-]{36})(?:\/(modules|lessons|plans|publish)(?:\/([0-9a-f-]{36})(?:\/(content))?)?)?)?$/);
       const catalogueRoute=catalogueForPrincipal && catalogue && [1,2,4].every(i=>catalogue[i]===undefined||uuid.test(catalogue[i])) &&
         (!catalogue[2]?['GET','POST'].includes(req.method):!catalogue[3]?['GET','PATCH'].includes(req.method):
@@ -174,12 +181,12 @@ export function createApi({authenticate,accessForPrincipal,consentForPrincipal,n
       const createHub=hubForPrincipal && path==='/v1/hubs' && req.method==='POST';
       const hubRoute=hubForPrincipal && hubAction && uuid.test(hubAction[1]) &&
         req.method===({join:'POST',membership:'GET',branding:'PUT'})[hubAction[2]];
-      if(!catalogueRoute && !domainRoute && !orgDomainRoute &&!logoRoute && !noticeRoute && !readAccount && !linkRoute && !orgRoute &&!sessionRoute && !createHub && !hubRoute && !consentRoute && (req.method!=='GET'||!match||!uuid.test(match[1])||!uuid.test(match[2])))return send(404,{error:'not_found'});
+      if(!progressRoute && !learningRoute && !catalogueRoute && !domainRoute &&!orgDomainRoute &&!logoRoute && !noticeRoute && !readAccount && !linkRoute && !orgRoute &&!sessionRoute && !createHub && !hubRoute && !consentRoute && (req.method!=='GET'||!match||!uuid.test(match[1])||!uuid.test(match[2])))return send(404,{error:'not_found'});
       const bearer=req.headers.authorization?.match(/^Bearer ([^\s]+)$/)?.[1];
       if(req.headers.authorization && !bearer)return send(401,{error:'unauthenticated'});
       const principal=bearer?await authenticate(bearer):await browserSessions?.principal(req);
       if(!principal||!uuid.test(principal.userId??''))return send(401,{error:'unauthenticated'});
-      const targetHub=catalogueRoute?catalogue[1]:domainRoute?domain[1]:orgDomainRoute?orgDomain[1]:logoRoute?logo[1]:noticeRoute?notice[1]:readAccount?accountRoute[1]:linkRoute?links[1]:orgRoute?org[1]:sessionRoute?sessionAction[1]:hubRoute?hubAction[1]:consentRoute?consent[1]:match?.[1];
+      const targetHub=progressRoute?progress[1]:learningRoute?learning[1]:catalogueRoute?catalogue[1]:domainRoute?domain[1]:orgDomainRoute?orgDomain[1]:logoRoute?logo[1]:noticeRoute?notice[1]:readAccount?accountRoute[1]:linkRoute?links[1]:orgRoute?org[1]:sessionRoute?sessionAction[1]:hubRoute?hubAction[1]:consentRoute?consent[1]:match?.[1];
       if(principal.sessionHash && targetHub && principal.hubId!==targetHub)return send(404,{error:'not_found'});
       if(principal.sessionHash && !['GET','HEAD'].includes(req.method))browserSessions.checkMutation(req,principal);
       if(domainRoute) {
@@ -188,6 +195,9 @@ export function createApi({authenticate,accessForPrincipal,consentForPrincipal,n
         const input=await readObject(req);
         return send(200,await (domain[2]?domains.verify(targetHub,input):req.method==='DELETE'?domains.remove(targetHub,input):domains.request(targetHub,input)));
       }
+      if(progressRoute)return send(200,await accessForPrincipal(principal).recordProgress({hubId:progress[1],userId:principal.userId,
+        lessonId:progress[2],update:await readObject(req),idempotencyKey:req.headers['idempotency-key']}));
+      if(learningRoute)return send(200,await learningForPrincipal(principal).learning(learning[1]));
       if(catalogueRoute) {
         const products=catalogueForPrincipal(principal),[,hubId,productId,part,planId,content]=catalogue;
         if(!productId)return req.method==='GET'?send(200,{products:await products.list(hubId)}):send(201,await products.create(hubId,await readObject(req)));

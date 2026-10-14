@@ -18,6 +18,7 @@ import { DomainVerification } from './modules/tenancy/domain-verification.js';
 import { OrganisationDomainRepository } from './db/organisation-domain-repository.js';
 import { OrganisationDomains } from './modules/identity/organisation-domains.js';
 import { CatalogueRepository } from './db/catalogue-repository.js';
+import { LearningRepository } from './db/learning-repository.js';
 /** Composition root: infrastructure is injected and owned by the caller. */
 export function createApplication({pool,authenticate,browserSessions,hostedSignIn,accountLinks,brandingStore,domainVerificationPool,resolveDomainTxt,cache=new MemoryAccessCache(),onError}) {
   if(!pool || typeof authenticate!=='function')throw Error('Database and verified authentication adapters are required');
@@ -26,7 +27,8 @@ export function createApplication({pool,authenticate,browserSessions,hostedSignI
   const domainForPrincipal=verifier?principal=>new DomainVerification({repository:new DomainRepository(database,verifier,principal.userId),resolveTxt:resolveDomainTxt}):undefined;
   const orgDomainsForPrincipal=verifier?principal=>new OrganisationDomains({repository:new OrganisationDomainRepository(database,verifier,principal.userId),resolveTxt:resolveDomainTxt}):undefined;
   return createApi({authenticate,browserSessions,hostedSignIn,accountLinks,brandingStore,domainForPrincipal,orgDomainsForPrincipal,
-    catalogueForPrincipal:principal=>new CatalogueRepository(database,principal.userId),publicCatalogue:new CatalogueRepository(database),logoForPrincipal:brandingStore?principal=>new LogoService({store:brandingStore,hubs:new HubRepository(database,principal.userId)}):undefined,onError,noticeForPrincipal:principal=>new NoticeRepository(database,principal.userId),identityForPrincipal:principal=>new IdentityRepository(database,principal.userId),
+    catalogueForPrincipal:principal=>new CatalogueRepository(database,principal.userId),publicCatalogue:new CatalogueRepository(database),
+    learningForPrincipal:principal=>new LearningRepository(database,principal.userId),logoForPrincipal:brandingStore?principal=>new LogoService({store:brandingStore,hubs:new HubRepository(database,principal.userId)}):undefined,onError,noticeForPrincipal:principal=>new NoticeRepository(database,principal.userId),identityForPrincipal:principal=>new IdentityRepository(database,principal.userId),
     organisationForPrincipal:principal=>new OrganisationRepository(database,principal.userId),publicHubs:new HubRepository(database),hubForPrincipal:principal=>new HubRepository(database,principal.userId),consentForPrincipal:principal=>new ConsentRepository(database,principal.userId),accessForPrincipal:principal=>
     new AccessService(new PostgresAccessRepository(database,principal.userId),cache)});
 }

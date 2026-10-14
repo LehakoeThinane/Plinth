@@ -9,7 +9,7 @@ export function formatRand(cents) {
 }
 const typeLabels={course:'Course',toolkit:'Toolkit',programme:'Programme'};
 const priceLabel=plan=>formatRand(plan.amount_cents)+({once_off:'',per_seat:' per seat',subscription:plan.billing_interval==='year'?' per year':' per month'})[plan.model];
-function layout(hub,{signIn,title,main}) {
+function layout(hub,{signIn,title,main,session=null,data={}}) {
   const color=/^#[0-9a-f]{6}$/i.test(hub.primary_color)?hub.primary_color:'#2456A6';
   const font=({system:'system-ui, sans-serif',serif:'Georgia, serif',sans:'Arial, sans-serif'})[hub.font]??'system-ui, sans-serif';
   const logo=typeof hub.logo_path==='string' &&
@@ -29,9 +29,10 @@ header{background:white;border-top:6px solid ${color};border-bottom:1px solid #d
 .shelf{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:20px;list-style:none;padding:0}
 .shelf li{border:1px solid #dce2ea;border-radius:10px;padding:20px}.price{font-weight:600}
 a{color:${color}}h2{margin-top:0}footer{color:#44556b;font-size:.9rem}
-</style></head><body>
-<header><div class="wrap"><a href="/h/${e(hub.slug)}">${logo}</a><strong>${e(hub.display_name)}</strong>${signIn?`<a href="/h/${e(hub.slug)}/sign-in">Sign in</a><a href="/h/${e(hub.slug)}/sign-in?view=join">Join hub</a>`:''}</div></header>
-<main class="wrap">${main}</main><footer class="wrap">Powered by Plinth</footer></body></html>`;
+</style>${session?'<script defer src="/assets/plinth-shell.js"></script>':''}</head>
+<body${session?` data-hub-id="${e(session.hubId)}" data-slug="${e(hub.slug)}" data-csrf="${e(session.csrfToken)}"`+Object.entries(data).map(([k,v])=>` data-${k}="${e(v)}"`).join(''):''}>
+<header><div class="wrap"><a href="/h/${e(hub.slug)}">${logo}</a><strong>${e(hub.display_name)}</strong>${session?`<a href="/h/${e(hub.slug)}/learning">My learning</a>`:signIn?`<a href="/h/${e(hub.slug)}/sign-in">Sign in</a><a href="/h/${e(hub.slug)}/sign-in?view=join">Join hub</a>`:''}</div></header>
+<main class="wrap">${main}<p id="status" role="status" aria-live="polite"></p></main><footer class="wrap">Powered by Plinth</footer></body></html>`;
 }
 export function renderStorefront(hub,{signIn=false,products=null}={}) {
   const items=(products??[]).map(p=>`<li><p class="eyebrow">${e(typeLabels[p.type]??'Course')}</p>
@@ -63,11 +64,19 @@ export function renderProductPage(hub,{product,modules,plans},{signIn=false}={})
 <section class="card"><h2>What's inside</h2>${outline?`<ol>${outline}</ol>`:'<p>The outline will appear here.</p>'}</section>`});
 }
 const unlock={join:'Join this hub to open this lesson.',purchase:'Buy this product to open this lesson.'};
-export function renderLessonPage(hub,{decision,reason,lesson},{signIn=false}={}) {
+export function renderLessonPage(hub,{decision,reason,lesson},{signIn=false,session=null}={}) {
+  // Text lessons record position as a fraction: 1 means read to the end.
+  const progress=decision==='allowed'&&session?`<section class="card"><h2>Your progress</h2>${lesson.progress?.completed?'<p>Completed.</p>':
+    '<button type="button" id="complete-lesson">Mark as complete</button>'}<p><a href="/h/${e(hub.slug)}/learning">My learning</a></p></section>`:'';
+  const page=lessonLayout(hub,{decision,reason,lesson,signIn});
+  return decision==='allowed'&&session?layout(hub,{signIn,session,title:page.title,main:page.main+progress,
+    data:{'lesson-id':lesson.id,'revision':lesson.progress?.revision??0}}):layout(hub,{signIn,title:page.title,main:page.main});
+}
+function lessonLayout(hub,{decision,reason,lesson}) {
   const back=`<p><a href="/h/${e(hub.slug)}/products/${e(lesson.productId)}">${e(lesson.productTitle)}</a></p>`;
   const locked=`<section class="card"><h2>Locked</h2><p>${e(unlock[reason]??'This lesson is not available to you yet.')}</p>
     <p>${reason==='join'?`<a href="/h/${e(hub.slug)}/sign-in?view=join">Join the hub</a>`:`<a href="/h/${e(hub.slug)}/products/${e(lesson.productId)}">See pricing</a>`}</p></section>`;
-  return layout(hub,{signIn,title:lesson.title+' · '+hub.display_name,main:`<section class="intro">${back}<h1>${e(lesson.title)}</h1>
+  return {title:lesson.title+' · '+hub.display_name,main:`<section class="intro">${back}<h1>${e(lesson.title)}</h1>
 <p class="description">${e(lesson.summary)}</p></section>
-${decision==='allowed'?`<article class="card lesson">${renderBody(lesson.body)||'<p>This lesson has no written content yet.</p>'}</article>`:locked}`});
+${decision==='allowed'?`<article class="card lesson">${renderBody(lesson.body)||'<p>This lesson has no written content yet.</p>'}</article>`:locked}`};
 }
