@@ -103,9 +103,21 @@ database), every visibility outcome for members, outsiders, tier holders, buyers
 suspended members and staff, unpublished linked products, archive behaviour,
 paging and topic filters, and HTTP/admin pages with escaping. See [library](library.md).
 
+## Seventh implemented slice: community
+
+Hub-wide, tier and company spaces with posts, comments, idempotent reactions,
+author deletion, reports and moderation (dismiss, hide, remove, remove and
+suspend). Every read and write runs after the space decision in the same
+transaction; company spaces are hidden by the database boundary. Moderation runs
+through one constrained function so content changes, suspension and report
+resolution commit together, and only ordinary members can be suspended.
+Migration 021 adds the `community` schema and the moderator role.
+
+Validation: `npm run verify` passed 206 checks; the full PostgreSQL 17 suite
+passed 137 checks (five new) on three consecutive runs. See [community](community.md).
+
 ## Next
 
-Working through the remaining locally buildable launch requirements in order:
-community (#6), enquiries (#3, the base for messaging #7), then membership-tier
-set-up (#8). Protected file assets and checkout remain blocked on storage and the
+Continuing in order: enquiries (#3, the base for messaging #7), then
+membership-tier set-up (#8). Protected file assets and checkout remain blocked on storage and the
 payment provider decision.

@@ -1,0 +1,129 @@
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import { CommunityRepository } from '../src/db/community-repository.js';
+import { CommunityService } from '../src/modules/community/community-service.js';
+import { PostgresAccessRepository } from '../src/db/access-repository.js';
+import { AccessService } from '../src/access.js';
+import { MemoryAccessCache } from '../src/cache/memory.js';
+import { auditPolicies } from '../src/db/policy-audit.js';
+export async function communityChecks({admin,app,db,hubId,userA,companyOrg,check,base,fetch,slug,testUsers}) {
+  const cache=new MemoryAccessCache();
+  const service=user=>new CommunityService({access:new AccessService(new PostgresAccessRepository(db,user),cache),userId:user});
+  const moderation=user=>new CommunityRepository(db,user),owner=moderation(userA);
+  const as=user=>(sql,params)=>db.withSnapshot({hubId,userId:user,orgIds:[],isStaff:false},tx=>tx.query(sql,params));
+  const [member,member2,employee,tierHolder,outsider]=Array.from({length:5},()=>randomUUID()),tier=randomUUID();
+  testUsers.push(member,member2,employee,tierHolder,outsider);
+  await admin.query('INSERT INTO identity.users(id) VALUES($1),($2),($3),($4),($5)',[member,member2,employee,tierHolder,outsider]);
+  await admin.query("INSERT INTO tenancy.memberships(hub_id,user_id,role,status) SELECT $1,u,'member','active' FROM unnest($2::uuid[]) u",[hubId,[member,member2,employee,tierHolder]]);
+  await admin.query("INSERT INTO identity.org_members(user_id,org_id,status) VALUES($1,$2,'active')",[employee,companyOrg]);
+  const spaces={};
+  const visible=async user=>Object.fromEntries((await service(user).spaces(hubId)).spaces.map(s=>[s.id,s.decision]));
+  await check('spaces are created by admins; company spaces are hidden and tier spaces locked',async()=>{
+    await assert.rejects(moderation(member).createSpace(hubId,{title:'Forged',visibility:'hub'}),{status:404});
+    for(const input of [{title:'X',visibility:'company'},{title:'X',visibility:'secret'},{title:'',visibility:'hub'},{title:'X',visibility:'hub',companyOrg}])
+      await assert.rejects(owner.createSpace(hubId,input),{status:400});
+    spaces.hub=(await owner.createSpace(hubId,{title:'Lounge <b>',description:'Everyone',visibility:'hub'})).id;
+    spaces.tier=(await owner.createSpace(hubId,{title:'Inner circle',visibility:'tier'})).id;
+    spaces.company=(await owner.createSpace(hubId,{title:'Absa cohort',visibility:'company',companyOrg})).id;
+    await admin.query("INSERT INTO access.entitlements(hub_id,id,user_id,target_id,kind) VALUES($1,$2,$3,$4,'tier')",[hubId,randomUUID(),tierHolder,tier]);
+    await admin.query('INSERT INTO access.tier_benefits(hub_id,tier_id,target_id) VALUES($1,$2,$3)',[hubId,tier,spaces.tier]);
+    assert.deepEqual(await visible(member),{[spaces.hub]:'allowed',[spaces.tier]:'locked'});
+    assert.deepEqual(await visible(employee),{[spaces.hub]:'allowed',[spaces.tier]:'locked',[spaces.company]:'allowed'});
+    assert.deepEqual(await visible(tierHolder),{[spaces.hub]:'allowed',[spaces.tier]:'allowed'});
+    assert.deepEqual(await visible(outsider),{[spaces.tier]:'locked'});
+    assert.equal((await as(member)('SELECT id FROM community.spaces WHERE id=$1',[spaces.company])).rows.length,0);
+    const c=await admin.connect();
+    try{await c.query('BEGIN');await c.query('DROP POLICY company_scope ON community.posts');await assert.rejects(auditPolicies(c),/Unsafe tenant policies/);}
+    finally{await c.query('ROLLBACK');c.release();}
+  });
+  let post;
+  await check('members post, comment and react only where they can read, always as themselves',async()=>{
+    post=(await service(member).createPost(hubId,spaces.hub,{body:'Hello <script>x</script>'})).id;
+    const comment=(await service(member2).comment(hubId,post,{body:'Welcome!'})).id;
+    for(let i=0;i<2;i++)await service(member2).react(hubId,post,'like',true);
+    let feed=await service(member).feed(hubId,spaces.hub);
+    assert.deepEqual([feed.posts[0].id,feed.posts[0].comments,feed.posts[0].reactions],[post,1,{like:1}]);
+    await service(member2).react(hubId,post,'like',false);assert.deepEqual((await service(member).post(hubId,post)).post.reactions,{});
+    await assert.rejects(service(member).createPost(hubId,spaces.tier,{body:'Sneaky'}),{status:403});
+    assert.equal((await service(member).feed(hubId,spaces.tier)).decision,'locked');
+    await assert.rejects(service(member).createPost(hubId,spaces.company,{body:'Sneaky'}),{status:404});
+    await assert.rejects(service(outsider).createPost(hubId,spaces.hub,{body:'Sneaky'}),{status:404});
+    await assert.rejects(service(null).spaces(hubId),{status:401});
+    await assert.rejects(service(member).react(hubId,post,'love',true),{status:400});
+    assert.ok((await service(tierHolder).createPost(hubId,spaces.tier,{body:'Tier talk'})).id);
+    const internal=(await service(employee).createPost(hubId,spaces.company,{body:'Internal'})).id;
+    await assert.rejects(service(member).post(hubId,internal),{status:404});
+    await assert.rejects(as(member)("INSERT INTO community.posts(hub_id,id,space_id,boundary_id,author_id,body) SELECT hub_id,$2,id,boundary_id,$3,'Forged' FROM community.spaces WHERE id=$1",[spaces.hub,randomUUID(),member2]),{code:'42501'});
+    await assert.rejects(as(outsider)("INSERT INTO community.posts(hub_id,id,space_id,boundary_id,author_id,body) SELECT hub_id,$2,id,boundary_id,$3,'Forged' FROM community.spaces WHERE id=$1",[spaces.hub,randomUUID(),outsider]),{code:'42501'});
+    await assert.rejects(as(member)("UPDATE community.posts SET body='Edited' WHERE id=$1",[post]),{code:'42501'});
+    assert.equal((await as(member2)("UPDATE community.posts SET status='removed' WHERE id=$1",[post])).rowCount,0);
+    await assert.rejects(service(member).withdraw(hubId,'comment',comment),{status:404});
+    await service(member2).withdraw(hubId,'comment',comment);assert.equal((await service(member).post(hubId,post)).comments.length,0);
+  });
+  await check('the feed pages newest first without repeats and archived spaces are read-only',async()=>{
+    for(const text of ['One','Two','Three'])await service(member).createPost(hubId,spaces.hub,{body:text});
+    const seen=[];let before=null;
+    do{const page=await service(member2).feed(hubId,spaces.hub,{before,limit:2});seen.push(...page.posts.map(p=>p.id));before=page.next;}while(before);
+    assert.equal(new Set(seen).size,seen.length);assert.equal(seen.length,4);
+    await assert.rejects(service(member).feed(hubId,spaces.hub,{before:'garbage'}),{status:400});
+    await owner.updateSpace(hubId,spaces.hub,{status:'archived'});
+    try {
+      await assert.rejects(service(member).feed(hubId,spaces.hub),{status:404});
+      assert.equal((await service(userA).feed(hubId,spaces.hub)).posts.length,4);
+      await assert.rejects(service(userA).createPost(hubId,spaces.hub,{body:'Closed'}),{status:409});
+    }finally{await owner.updateSpace(hubId,spaces.hub,{status:'active'});}
+  });
+  await check('reports reach moderators once; resolutions change content and suspend only members',async()=>{
+    for(const user of [member2,member2,tierHolder])await service(user).report(hubId,{targetType:'post',targetId:post,reason:'Spam'});
+    const open=(await owner.reports(hubId)).filter(r=>r.target_id===post);assert.equal(open.length,2);
+    await assert.rejects(moderation(member).reports(hubId),{status:404});
+    await assert.rejects(moderation(member).resolve(hubId,open[0].id,'hide'),{status:404});
+    await assert.rejects(as(member)('SELECT app.resolve_report($1,$2)',[open[0].id,'hide']),{code:'42501'});
+    await assert.rejects(app.query("UPDATE community.reports SET status='dismissed'"),{code:'42501'});
+    await owner.resolve(hubId,open[0].id,'hide');
+    assert.ok(!(await service(member2).feed(hubId,spaces.hub)).posts.some(p=>p.id===post));
+    assert.deepEqual((await admin.query('SELECT DISTINCT status,resolution FROM community.reports WHERE target_id=$1',[post])).rows,[{status:'actioned',resolution:'hide'}]);
+    await assert.rejects(owner.resolve(hubId,open[0].id,'dismiss'),{status:409});
+    const offending=(await service(member).createPost(hubId,spaces.hub,{body:'Offensive'})).id;
+    await service(member2).report(hubId,{targetType:'post',targetId:offending,reason:'Abuse'});
+    const before=(await admin.query('SELECT access_version FROM identity.users WHERE id=$1',[member])).rows[0].access_version;
+    await owner.resolve(hubId,(await owner.reports(hubId)).find(r=>r.target_id===offending).id,'suspend');
+    assert.equal((await admin.query('SELECT status FROM tenancy.memberships WHERE hub_id=$1 AND user_id=$2',[hubId,member])).rows[0].status,'suspended');
+    assert.ok(BigInt((await admin.query('SELECT access_version FROM identity.users WHERE id=$1',[member])).rows[0].access_version)>BigInt(before));
+    await assert.rejects(service(member).feed(hubId,spaces.hub),{status:404});
+    await admin.query("UPDATE tenancy.memberships SET status='active' WHERE hub_id=$1 AND user_id=$2",[hubId,member]);
+    const staffPost=(await service(userA).createPost(hubId,spaces.hub,{body:'Announcement'})).id;
+    await service(member2).report(hubId,{targetType:'post',targetId:staffPost,reason:'Disagree'});
+    const staffReport=(await owner.reports(hubId)).find(r=>r.target_id===staffPost).id;
+    await assert.rejects(owner.resolve(hubId,staffReport,'suspend'),{status:409});
+    assert.ok((await service(member2).feed(hubId,spaces.hub)).posts.some(p=>p.id===staffPost));
+    await owner.resolve(hubId,staffReport,'dismiss');
+    const role=(await admin.query("SELECT rolcanlogin,rolsuper,rolbypassrls FROM pg_roles WHERE rolname='plinth_community_moderator'")).rows[0];
+    assert.deepEqual(role,{rolcanlogin:false,rolsuper:false,rolbypassrls:false});
+    assert.equal((await admin.query("SELECT pg_has_role('plinth_app','plinth_community_moderator','MEMBER') AS m")).rows[0].m,false);
+  });
+  await check('community HTTP routes and pages need identity, CSRF and the right role',async()=>{
+    const api=path=>base+'/v1/hubs/'+hubId+'/'+path,bearer={authorization:'Bearer learner-a'};
+    assert.equal((await fetch(api('spaces'))).status,401);
+    assert.ok((await (await fetch(api('spaces'),{headers:bearer})).json()).spaces.length>=3);
+    const created=await fetch(api('spaces/'+spaces.hub+'/posts'),{method:'POST',headers:bearer,body:JSON.stringify({body:'From the API'})});assert.equal(created.status,201);
+    const id=(await created.json()).id;
+    assert.equal((await fetch(api('posts/'+id+'/reactions/thanks'),{method:'PUT',headers:bearer})).status,200);
+    assert.equal((await fetch(api('posts/'+id+'/comments'),{method:'POST',headers:bearer,body:JSON.stringify({body:'Reply'})})).status,201);
+    assert.equal((await fetch(api('spaces/'+spaces.hub+'/posts'),{method:'POST',headers:{authorization:'Bearer learner-b'},body:JSON.stringify({body:'X'})})).status,404);
+    assert.equal((await fetch(api('catalogue/reports'),{headers:{authorization:'Bearer learner-b'}})).status,404);
+    assert.equal((await fetch(api('catalogue/reports'),{headers:bearer})).status,200);
+    const host='learn-new.example',exchange=await fetch(base+'/v1/hubs/'+hubId+'/session',{method:'POST',headers:{...bearer,host,origin:'https://'+host}});
+    const cookie=exchange.headers.get('set-cookie').split(';')[0],csrf=(await exchange.json()).csrfToken,browser={host,origin:'https://'+host,cookie};
+    assert.equal((await fetch(api('spaces/'+spaces.hub+'/posts'),{method:'POST',headers:browser,body:JSON.stringify({body:'No CSRF'})})).status,403);
+    assert.equal((await fetch(api('spaces/'+spaces.hub+'/posts'),{method:'POST',headers:{...browser,'x-csrf-token':csrf},body:JSON.stringify({body:'With CSRF'})})).status,201);
+    const page=p=>fetch(base+'/h/'+slug+p,{headers:{host,cookie}});
+    const list=await (await page('/community')).text();assert.ok(list.includes('Lounge &lt;b&gt;'));assert.ok(!list.includes('Lounge <b>'));
+    const space=await (await page('/community/spaces/'+spaces.hub)).text();assert.ok(space.includes('id="create-post"'));assert.ok(space.includes('Hello')===false);
+    assert.ok(space.includes('With CSRF'));assert.ok(!space.includes('<script>x'));
+    assert.ok((await (await page('/community/posts/'+id)).text()).includes('id="create-comment"'));
+    assert.ok((await (await page('/admin/community')).text()).includes('Open reports'));
+    assert.equal((await page('/community/spaces/'+randomUUID())).status,404);
+    const anonymous=await fetch(base+'/h/'+slug+'/community',{headers:{host}});assert.equal(anonymous.status,303);
+  });
+}

@@ -25,6 +25,7 @@ import { organisationDomainChecks } from './org-domain-workflows.js';
 import { catalogueChecks } from './catalogue-workflows.js';
 import { lessonChecks } from './lesson-workflows.js';
 import { libraryChecks } from './library-workflows.js';
+import { communityChecks } from './community-workflows.js';
 import { LocalBrandingStore } from '../src/storage/local-branding.js';
 import { mkdir,mkdtemp,rm } from 'node:fs/promises';
 import { resolve,relative,isAbsolute } from 'node:path';
@@ -395,6 +396,7 @@ try {
   await catalogueChecks({admin,app,db,hubId:createdHub,otherHub:a,userA,userB,companyOrg:orgA,check,base,fetch,slug:createdSlug,embeddedMode});
   await lessonChecks({admin,db,hubId:createdHub,userA,userB,companyOrg:orgA,check,base,fetch,slug:createdSlug,testUsers,embeddedMode,maintenance,app});
   await libraryChecks({admin,db,hubId:createdHub,userA,companyOrg:orgA,check,base,fetch,slug:createdSlug,testUsers});
+  await communityChecks({admin,app,db,hubId:createdHub,userA,companyOrg:orgA,check,base,fetch,slug:createdSlug,testUsers});
   const browserHeaders={host:'learn-a.example',origin:'https://learn-a.example'};
   await check('browser session exchange requires a verified bearer and exact trusted origin',async()=>{
     const sessionUrl=base+'/v1/hubs/'+a+'/session';
@@ -522,6 +524,7 @@ try {
   await admin.query('DELETE FROM content.lesson_progress WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM content.progress_requests WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM content.lesson_opens WHERE hub_id=ANY($1::uuid[])',[testHubs]);
+  for(const table of ['reactions','comments','reports','posts','spaces'])await admin.query('DELETE FROM community.'+table+' WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM tenancy.domain_claims WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM identity.auth_sessions WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM identity.org_domain_claims WHERE org_id=ANY($1::uuid[])',[testOrgs]);

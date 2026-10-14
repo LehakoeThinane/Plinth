@@ -9,3 +9,4 @@ CREATE ROLE plinth_domain_executor NOLOGIN NOSUPERUSER NOBYPASSRLS;
 CREATE ROLE plinth_domain_verifier LOGIN PASSWORD 'local-development-only' NOSUPERUSER NOBYPASSRLS;
 CREATE ROLE plinth_retention_executor NOLOGIN NOSUPERUSER NOBYPASSRLS;
 CREATE ROLE plinth_maintenance LOGIN PASSWORD 'local-development-only' NOSUPERUSER NOBYPASSRLS;
+CREATE ROLE plinth_community_moderator NOLOGIN NOSUPERUSER NOBYPASSRLS;

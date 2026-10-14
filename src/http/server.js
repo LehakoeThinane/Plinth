@@ -1,5 +1,6 @@
 import { createServer } from 'node:http';
 import { renderStorefront,renderProductPage,renderLessonPage,renderLibrary,renderLibraryItem } from './storefront.js';
+import { matchCommunityApi } from './community-routes.js';
 import { readFile } from 'node:fs/promises';
 import { renderApplicationShell } from './application-shell.js';
 import { clearLoginCookie,isRecentSignIn } from '../modules/identity/hosted-sign-in.js';
@@ -29,7 +30,7 @@ async function readObject(req,maxBytes=4096) {
  * No default authenticator, development header override or public token issuer.
  * This endpoint returns an ACCESS DECISION only, never media/content.
  */
-export function createApi({authenticate,accessForPrincipal,consentForPrincipal,noticeForPrincipal,hubForPrincipal,identityForPrincipal,organisationForPrincipal,logoForPrincipal,brandingStore,domainForPrincipal,orgDomainsForPrincipal,catalogueForPrincipal,publicCatalogue,learningForPrincipal,libraryForPrincipal,publicHubs,browserSessions,hostedSignIn,accountLinks,onError=()=>{}}) {
+export function createApi({authenticate,accessForPrincipal,consentForPrincipal,noticeForPrincipal,hubForPrincipal,identityForPrincipal,organisationForPrincipal,logoForPrincipal,brandingStore,domainForPrincipal,orgDomainsForPrincipal,catalogueForPrincipal,publicCatalogue,learningForPrincipal,libraryForPrincipal,communityForPrincipal,moderationForPrincipal,publicHubs,browserSessions,hostedSignIn,accountLinks,onError=()=>{}}) {
   if(typeof authenticate!=='function'||typeof accessForPrincipal!=='function')throw Error('Verified authentication adapter required');
   return createServer(async(req,res)=>{
     const send=(status,body)=>{res.writeHead(status,{'content-type':'application/json','cache-control':'no-store'});res.end(JSON.stringify(body));};
@@ -59,7 +60,35 @@ export function createApi({authenticate,accessForPrincipal,consentForPrincipal,n
         res.writeHead(200,{'content-type':'text/javascript; charset=utf-8','x-content-type-options':'nosniff','cache-control':'no-cache'});
         return res.end(script);
       }
-      const adminPages=path.match(/^\/h\/([a-z0-9-]+)\/admin\/(products|library)(?:\/([0-9a-f-]{36}))?$/);
+      const communityPage=path.match(/^\/h\/([a-z0-9-]+)\/(community|admin\/community)(?:\/(spaces|posts)\/([0-9a-f-]{36}))?$/);
+      if(browserSessions && publicHubs && hubForPrincipal && communityForPrincipal && moderationForPrincipal && req.method==='GET' && communityPage &&
+        (communityPage[2]==='community'||!communityPage[3]) && (!communityPage[4]||uuid.test(communityPage[4]))) {
+        const hub=await publicHubs.resolve({slug:communityPage[1]});
+        const principal=await browserSessions.principal(req);
+        if(!principal) {
+          if(hostedSignIn){res.writeHead(303,{'location':'/h/'+hub.slug+'/sign-in?view='+(communityPage[2]==='community'?'member':'admin'),'cache-control':'no-store'});return res.end();}
+          return send(401,{error:'unauthenticated'});
+        }
+        if(principal.hubId!==hub.id)return send(404,{error:'not_found'});
+        const membership=await hubForPrincipal(principal).membership(hub.id).catch(error=>{if(error.status===404)return null;throw error;});
+        const service=communityForPrincipal(principal);
+        let view,community;
+        if(communityPage[2]==='admin/community') {
+          if(!['owner','admin'].includes(membership?.role))return send(404,{error:'not_found'});
+          const moderation=moderationForPrincipal(principal);
+          view='community-admin';community={spaces:await moderation.adminSpaces(hub.id),reports:await moderation.reports(hub.id)};
+        } else if(communityPage[3]==='spaces') {
+          const space=(await service.spaces(hub.id)).spaces.find(s=>s.id===communityPage[4]);
+          if(!space)return send(404,{error:'not_found'});
+          view='space';community={space,feed:await service.feed(hub.id,space.id,{before:requestUrl.searchParams.get('before')})};
+        } else if(communityPage[3]==='posts') {
+          const thread=await service.post(hub.id,communityPage[4]);
+          if(thread.decision==='locked')return send(404,{error:'not_found'});
+          view='post';community={thread};
+        } else {view='community';community=await service.spaces(hub.id);}
+        const html=renderApplicationShell({hub,view,membership,community:{...community,userId:principal.userId},consents:[],csrfToken:principal.csrfToken});
+        res.writeHead(200,htmlHeaders);return res.end(html);
+      }      const adminPages=path.match(/^\/h\/([a-z0-9-]+)\/admin\/(products|library)(?:\/([0-9a-f-]{36}))?$/);
       if(browserSessions && publicHubs && hubForPrincipal && catalogueForPrincipal && libraryForPrincipal && req.method==='GET' && adminPages && (!adminPages[3]||uuid.test(adminPages[3]))) {
         const hub=await publicHubs.resolve({slug:adminPages[1]}),entryId=adminPages[3];
         const principal=await browserSessions.principal(req);
@@ -188,6 +217,7 @@ export function createApi({authenticate,accessForPrincipal,consentForPrincipal,n
       const readAccount=accountRoute && uuid.test(accountRoute[1]) && req.method==='GET';
       const progress=path.match(/^\/v1\/hubs\/([0-9a-f-]{36})\/lessons\/([0-9a-f-]{36})\/progress$/);
       const progressRoute=progress && uuid.test(progress[1]) && uuid.test(progress[2]) && req.method==='PUT';
+      const communityRoute=communityForPrincipal&&moderationForPrincipal?matchCommunityApi(path,req.method):null;
       const libraryAdmin=path.match(/^\/v1\/hubs\/([0-9a-f-]{36})\/catalogue\/library(?:\/([0-9a-f-]{36})(?:\/(publish|archive))?)?$/);
       const libraryAdminRoute=libraryForPrincipal && libraryAdmin && uuid.test(libraryAdmin[1]) && (!libraryAdmin[2]||uuid.test(libraryAdmin[2])) &&
         (!libraryAdmin[2]?['GET','POST'].includes(req.method):!libraryAdmin[3]?['GET','PATCH'].includes(req.method):req.method==='POST');
@@ -214,12 +244,12 @@ export function createApi({authenticate,accessForPrincipal,consentForPrincipal,n
       const createHub=hubForPrincipal && path==='/v1/hubs' && req.method==='POST';
       const hubRoute=hubForPrincipal && hubAction && uuid.test(hubAction[1]) &&
         req.method===({join:'POST',membership:'GET',branding:'PUT'})[hubAction[2]];
-      if(!libraryAdminRoute && !progressRoute && !learningRoute && !catalogueRoute && !domainRoute &&!orgDomainRoute &&!logoRoute && !noticeRoute && !readAccount && !linkRoute && !orgRoute &&!sessionRoute && !createHub && !hubRoute && !consentRoute && (req.method!=='GET'||!match||!uuid.test(match[1])||!uuid.test(match[2])))return send(404,{error:'not_found'});
+      if(!communityRoute && !libraryAdminRoute && !progressRoute && !learningRoute && !catalogueRoute && !domainRoute &&!orgDomainRoute &&!logoRoute && !noticeRoute && !readAccount && !linkRoute && !orgRoute &&!sessionRoute && !createHub && !hubRoute && !consentRoute && (req.method!=='GET'||!match||!uuid.test(match[1])||!uuid.test(match[2])))return send(404,{error:'not_found'});
       const bearer=req.headers.authorization?.match(/^Bearer ([^\s]+)$/)?.[1];
       if(req.headers.authorization && !bearer)return send(401,{error:'unauthenticated'});
       const principal=bearer?await authenticate(bearer):await browserSessions?.principal(req);
       if(!principal||!uuid.test(principal.userId??''))return send(401,{error:'unauthenticated'});
-      const targetHub=libraryAdminRoute?libraryAdmin[1]:progressRoute?progress[1]:learningRoute?learning[1]:catalogueRoute?catalogue[1]:domainRoute?domain[1]:orgDomainRoute?orgDomain[1]:logoRoute?logo[1]:noticeRoute?notice[1]:readAccount?accountRoute[1]:linkRoute?links[1]:orgRoute?org[1]:sessionRoute?sessionAction[1]:hubRoute?hubAction[1]:consentRoute?consent[1]:match?.[1];
+      const targetHub=communityRoute?communityRoute.hubId:libraryAdminRoute?libraryAdmin[1]:progressRoute?progress[1]:learningRoute?learning[1]:catalogueRoute?catalogue[1]:domainRoute?domain[1]:orgDomainRoute?orgDomain[1]:logoRoute?logo[1]:noticeRoute?notice[1]:readAccount?accountRoute[1]:linkRoute?links[1]:orgRoute?org[1]:sessionRoute?sessionAction[1]:hubRoute?hubAction[1]:consentRoute?consent[1]:match?.[1];
       if(principal.sessionHash && targetHub && principal.hubId!==targetHub)return send(404,{error:'not_found'});
       if(principal.sessionHash && !['GET','HEAD'].includes(req.method))browserSessions.checkMutation(req,principal);
       if(domainRoute) {
@@ -231,6 +261,11 @@ export function createApi({authenticate,accessForPrincipal,consentForPrincipal,n
       if(progressRoute)return send(200,await accessForPrincipal(principal).recordProgress({hubId:progress[1],userId:principal.userId,
         lessonId:progress[2],update:await readObject(req),idempotencyKey:req.headers['idempotency-key']}));
       if(learningRoute)return send(200,await learningForPrincipal(principal).learning(learning[1]));
+      if(communityRoute) {
+        const result=await communityRoute.run({community:communityForPrincipal(principal),moderation:moderationForPrincipal(principal),
+          query:requestUrl.searchParams,body:()=>readObject(req,32768)});
+        return send(result.status,result.body);
+      }
       if(libraryAdminRoute) {
         const library=libraryForPrincipal(principal),[,hubId,itemId,action]=libraryAdmin;
         if(!itemId)return req.method==='GET'?send(200,{items:await library.list(hubId)}):send(201,await library.create(hubId,await readObject(req,262144)));

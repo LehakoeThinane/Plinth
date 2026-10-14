@@ -145,6 +145,31 @@ for(const button of document.querySelectorAll('.library-status'))button.addEvent
   try{await request('catalogue/library/'+id+'/'+action,'POST');window.location.reload();}
   catch(error){status.textContent=error.message;button.disabled=false;}
 });
+formHandler('create-post',async form=>{await request('spaces/'+form.dataset.spaceId+'/posts','POST',{body:form.elements.body.value});window.location.reload();});
+formHandler('create-comment',async form=>{await request('posts/'+form.dataset.postId+'/comments','POST',{body:form.elements.body.value});window.location.reload();});
+const clickAll=(selector,handler)=>{for(const button of document.querySelectorAll(selector))button.addEventListener('click',async()=>{
+  button.disabled=true;try{if(await handler(button)!==false)window.location.reload();else button.disabled=false;}catch(error){status.textContent=error.message;button.disabled=false;}
+});};
+clickAll('.react',b=>request('posts/'+b.dataset.postId+'/reactions/'+b.dataset.kind,b.dataset.on==='true'?'PUT':'DELETE'));
+clickAll('.withdraw',async b=>{
+  if(!window.confirm('Delete this '+b.dataset.type+'? It cannot be restored.'))return false;
+  await request((b.dataset.type==='post'?'posts/':'comments/')+b.dataset.id,'DELETE');
+});
+clickAll('.report',async b=>{
+  const reason=window.prompt('Why are you reporting this '+b.dataset.type+'? Moderators will review it.');
+  if(!reason||!reason.trim())return false;
+  await request('reports','POST',{targetType:b.dataset.type,targetId:b.dataset.id,reason:reason.slice(0,1000)});
+  status.textContent='Thank you. The moderators have been notified.';return false;
+});
+formHandler('create-space',async form=>{
+  const data=Object.fromEntries(new FormData(form));if(data.visibility!=='company')delete data.companyOrg;
+  await request('catalogue/spaces','POST',data);window.location.reload();
+});
+clickAll('.space-status',b=>request('catalogue/spaces/'+b.dataset.spaceId,'PATCH',{status:b.dataset.status}));
+clickAll('.resolve-report',async b=>{
+  if(b.dataset.action==='suspend'&&!window.confirm('Remove this content and suspend its author from the hub?'))return false;
+  await request('catalogue/reports/'+b.dataset.reportId+'/resolve','POST',{action:b.dataset.action});
+});
 formHandler('create-organisation',async form=>{const org=await request('organisations','POST',Object.fromEntries(new FormData(form)));window.location.assign('/h/'+slug+'/organisations?org='+org.id);});
 formHandler('rename-organisation',form=>request('organisations/'+orgId,'PUT',Object.fromEntries(new FormData(form))));
 formHandler('accept-invitation',async form=>{const data=Object.fromEntries(new FormData(form));await request('organisations/'+encodeURIComponent(data.orgId)+'/accept','POST',{token:data.token});form.reset();window.location.assign('/h/'+slug+'/organisations');});

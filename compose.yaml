@@ -30,6 +30,7 @@ services:
       - ./db/migrations/018-progress.sql:/docker-entrypoint-initdb.d/18-progress.sql:ro
       - ./db/migrations/019-access-log.sql:/docker-entrypoint-initdb.d/19-access-log.sql:ro
       - ./db/migrations/020-library.sql:/docker-entrypoint-initdb.d/20-library.sql:ro
+      - ./db/migrations/021-community.sql:/docker-entrypoint-initdb.d/21-community.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U plinth_admin -d plinth"]
       interval: 5s

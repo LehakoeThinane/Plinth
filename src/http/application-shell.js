@@ -4,7 +4,8 @@ import { renderAccount } from './account-shell.js';
 import { renderProducts,renderProductEditor } from './catalogue-shell.js';
 import { renderLearning } from './learning-shell.js';
 import { renderLibraryAdmin,renderLibraryEditor } from './library-shell.js';
-export function renderApplicationShell({hub,view,membership,consents,csrfToken,account,signIn,organisation,orgDomains,catalogue,learning,publications=[],olderNotices=null,brandingEnabled=false,domains}) {
+import { renderCommunity,renderSpace,renderPostPage,renderCommunityAdmin } from './community-shell.js';
+export function renderApplicationShell({hub,view,membership,consents,csrfToken,account,signIn,organisation,orgDomains,catalogue,learning,community,publications=[],olderNotices=null,brandingEnabled=false,domains}) {
   // Retired purposes are no longer offered; their old grants are inactive.
   const choices=consents.filter(c=>!c.retired).map(c=>`<label class="choice"><input type="checkbox" name="${e(c.purpose)}" data-purpose="${e(c.purpose)}" data-version="${e(c.notice_version)}"${c.granted?' checked':''}>
     <span><strong>${e(c.purpose.replaceAll('_',' '))}</strong><br>${e(c.notice_text)}</span></label>`).join('');
@@ -22,7 +23,9 @@ export function renderApplicationShell({hub,view,membership,consents,csrfToken,a
   const domainAdmin=domains?`<section><h2>Custom domain ownership</h2><p>Verify DNS ownership here. HTTPS and domain activation are arranged separately.</p>
     <form id="domain-request"><label>Hostname<input name="hostname" maxlength="232" placeholder="learn.yourcompany.co.za" required></label><button>Create or replace DNS proof</button></form>
     <p id="domain-proof" role="status"></p><ul>${domains.claims.map(d=>`<li>${e(d.hostname)} · proof expires ${e(d.expires_at)} <button class="verify-domain" data-hostname="${e(d.hostname)}">Check DNS</button> <button class="remove-domain" data-hostname="${e(d.hostname)}">Remove</button></li>`).join('')}${domains.verified.map(d=>`<li>${e(d.hostname)} · ownership verified <button class="remove-domain" data-hostname="${e(d.hostname)}">Remove</button></li>`).join('')}</ul></section>`:'';
-  const content=view==='library'?renderLibraryAdmin({hub,items:catalogue.items}):view==='library-item'?renderLibraryEditor({hub,item:catalogue.item,products:catalogue.products}):view==='learning'?renderLearning({hub,learning}):view==='products'?renderProducts({hub,products:catalogue.products}):view==='product'?renderProductEditor({hub,detail:catalogue.detail,opens:catalogue.opens}):view==='organisations'?renderOrganisations({hub,account,organisation,orgDomains}):view==='account'?renderAccount({hub,account,signIn}):view==='create-hub'?`<h1>Create a learning hub</h1><form id="create-hub">
+  const content=view==='community'?renderCommunity({hub,spaces:community.spaces}):view==='space'?renderSpace({hub,space:community.space,feed:community.feed,userId:community.userId}):
+    view==='post'?renderPostPage({hub,thread:community.thread,userId:community.userId}):view==='community-admin'?renderCommunityAdmin({hub,spaces:community.spaces,reports:community.reports}):
+    view==='library'?renderLibraryAdmin({hub,items:catalogue.items}):view==='library-item'?renderLibraryEditor({hub,item:catalogue.item,products:catalogue.products}):view==='learning'?renderLearning({hub,learning}):view==='products'?renderProducts({hub,products:catalogue.products}):view==='product'?renderProductEditor({hub,detail:catalogue.detail,opens:catalogue.opens}):view==='organisations'?renderOrganisations({hub,account,organisation,orgDomains}):view==='account'?renderAccount({hub,account,signIn}):view==='create-hub'?`<h1>Create a learning hub</h1><form id="create-hub">
     <label>Hub name<input name="displayName" maxlength="200" required></label>
     <label>Hub address<input name="slug" minlength="3" maxlength="63" pattern="[a-z0-9]+(-[a-z0-9]+)*" required aria-describedby="slug-help"></label>
     <p id="slug-help">Use lowercase letters, numbers and single hyphens.</p><button type="submit">Create hub</button></form>`:
@@ -52,6 +55,6 @@ table{width:100%;border-collapse:collapse;display:block;overflow-x:auto}th,td{te
 <a href="/h/${e(hub.slug)}/create-hub">Create a hub</a>
 <a href="/h/${e(hub.slug)}/organisations">Organisations</a>
 <a href="/h/${e(hub.slug)}/account">Account</a>
-${membership && ['owner','admin'].includes(membership.role)?`<a href="/h/${e(hub.slug)}/admin">Hub admin</a><a href="/h/${e(hub.slug)}/admin/products">Products</a><a href="/h/${e(hub.slug)}/admin/library">Library</a>`:''}
+${membership && ['owner','admin'].includes(membership.role)?`<a href="/h/${e(hub.slug)}/admin">Hub admin</a><a href="/h/${e(hub.slug)}/admin/products">Products</a><a href="/h/${e(hub.slug)}/admin/library">Library</a><a href="/h/${e(hub.slug)}/admin/community">Moderation</a>`:''}
 <button type="button" id="logout">Sign out</button></nav></header><main>${content}<p id="status" role="status" aria-live="polite"></p></main></body></html>`;
 }

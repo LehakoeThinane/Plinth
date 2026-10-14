@@ -1,3 +1,7 @@
+// A space is a single-row chain: hub and company spaces need active membership
+// (company spaces also the company), tier spaces a tier benefit naming the space.
+const mapSpace=s=>({id:s.id,hubId:s.hub_id,companyOrg:s.company_org,status:s.status==='active'?'published':'archived',
+  access:s.visibility==='tier'?'entitled':'members',visibility:'public',previewAvailable:s.visibility==='tier'});
 /** Bound to a verified principal. Roles/company IDs are loaded from PostgreSQL
  * in the SAME snapshot as the access decisions, never from request headers.
  */
@@ -18,6 +22,22 @@ export class PostgresAccessRepository {
           if(!product)return [];
           const map=r=>({id:r.id,hubId:r.hub_id,companyOrg:r.company_org,status:r.status,access:r.access_mode,visibility:r.visibility,previewAvailable:r.preview_available??false});
           return [map(lesson),map(product)];
+        },
+        // Community operations run their own SQL inside this same snapshot.
+        query:(sql,params)=>tx.query(sql,params),
+        listSpaces:async()=>(await tx.query(`SELECT s.id,s.hub_id,s.title,s.description,s.visibility,s.status,b.company_org
+          FROM community.spaces s JOIN tenancy.boundaries b ON b.hub_id=s.hub_id AND b.id=s.boundary_id
+          WHERE s.hub_id=$1 ORDER BY s.created_at,s.id`,[hubId])).rows.map(s=>({row:mapSpace(s),
+          space:{id:s.id,title:s.title,description:s.description,visibility:s.visibility,status:s.status}})),
+        getSpaceChain:async id=>{
+          const s=(await tx.query(`SELECT s.id,s.hub_id,s.visibility,s.status,b.company_org FROM community.spaces s
+            JOIN tenancy.boundaries b ON b.hub_id=s.hub_id AND b.id=s.boundary_id WHERE s.hub_id=$1 AND s.id=$2`,[hubId,id])).rows[0];
+          return s?[mapSpace(s)]:[];
+        },
+        getContributionSpace:async({postId,commentId})=>{
+          const row=postId?(await tx.query('SELECT space_id FROM community.posts WHERE hub_id=$1 AND id=$2',[hubId,postId])).rows[0]:
+            commentId?(await tx.query('SELECT space_id FROM community.comments WHERE hub_id=$1 AND id=$2',[hubId,commentId])).rows[0]:null;
+          return row?.space_id??null;
         },
         // A library item maps onto the lesson chain shape: the item's own
         // requirement, then the linked product's for buyer-only items.

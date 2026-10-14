@@ -72,6 +72,33 @@ export class AccessService {
     });
   }
 
+  /** Spaces the caller can see: open ones, plus tier spaces as locked previews. */
+  async spaces({ hubId, userId }) {
+    return this.repository.withSnapshot(hubId, async (snapshot) => {
+      const summary = userId ? await this.freshSummary(snapshot, hubId, userId) : null;
+      const visible = [];
+      for (const { row, space } of await snapshot.listSpaces()) {
+        const decision = this.evaluate([row], summary, 'content');
+        if (decision.decision !== 'not_found') visible.push({ ...space, decision: decision.decision, reason: decision.reason });
+      }
+      return visible;
+    });
+  }
+
+  /** Runs a community read or write after the space decision, in the SAME
+   * transaction. Pass a spaceId, or a postId/commentId to resolve its space.
+   * The operation receives the decision and a query function for that snapshot.
+   */
+  async inSpace({ hubId, userId, spaceId = null, postId = null, commentId = null }, operation) {
+    return this.repository.withSnapshot(hubId, async (snapshot) => {
+      const resolved = spaceId ?? await snapshot.getContributionSpace({ postId, commentId });
+      const chain = resolved ? await snapshot.getSpaceChain(resolved) : [];
+      if (!chain.length || chain.some(row => row.hubId !== hubId)) return operation({ decision: notFound(), query: snapshot.query, spaceId: null });
+      const summary = userId ? await this.freshSummary(snapshot, hubId, userId) : null;
+      return operation({ decision: this.evaluate(chain, summary, 'content'), query: snapshot.query, spaceId: resolved, membership: summary?.membership ?? null });
+    });
+  }
+
   /** Saves progress only for a lesson the learner can open now, decided in the
    * same transaction. A retried request with the same idempotency key returns
    * the stored result; the same key with a different payload is a conflict.
