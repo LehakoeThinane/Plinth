@@ -1,7 +1,8 @@
 import { escapeText as e } from './storefront.js';
 import { renderOrganisations } from './organisation-shell.js';
 import { renderAccount } from './account-shell.js';
-export function renderApplicationShell({hub,view,membership,consents,csrfToken,account,signIn,organisation,orgDomains,publications=[],olderNotices=null,brandingEnabled=false,domains}) {
+import { renderProducts,renderProductEditor } from './catalogue-shell.js';
+export function renderApplicationShell({hub,view,membership,consents,csrfToken,account,signIn,organisation,orgDomains,catalogue,publications=[],olderNotices=null,brandingEnabled=false,domains}) {
   // Retired purposes are no longer offered; their old grants are inactive.
   const choices=consents.filter(c=>!c.retired).map(c=>`<label class="choice"><input type="checkbox" name="${e(c.purpose)}" data-purpose="${e(c.purpose)}" data-version="${e(c.notice_version)}"${c.granted?' checked':''}>
     <span><strong>${e(c.purpose.replaceAll('_',' '))}</strong><br>${e(c.notice_text)}</span></label>`).join('');
@@ -19,7 +20,7 @@ export function renderApplicationShell({hub,view,membership,consents,csrfToken,a
   const domainAdmin=domains?`<section><h2>Custom domain ownership</h2><p>Verify DNS ownership here. HTTPS and domain activation are arranged separately.</p>
     <form id="domain-request"><label>Hostname<input name="hostname" maxlength="232" placeholder="learn.yourcompany.co.za" required></label><button>Create or replace DNS proof</button></form>
     <p id="domain-proof" role="status"></p><ul>${domains.claims.map(d=>`<li>${e(d.hostname)} · proof expires ${e(d.expires_at)} <button class="verify-domain" data-hostname="${e(d.hostname)}">Check DNS</button> <button class="remove-domain" data-hostname="${e(d.hostname)}">Remove</button></li>`).join('')}${domains.verified.map(d=>`<li>${e(d.hostname)} · ownership verified <button class="remove-domain" data-hostname="${e(d.hostname)}">Remove</button></li>`).join('')}</ul></section>`:'';
-  const content=view==='organisations'?renderOrganisations({hub,account,organisation,orgDomains}):view==='account'?renderAccount({hub,account,signIn}):view==='create-hub'?`<h1>Create a learning hub</h1><form id="create-hub">
+  const content=view==='products'?renderProducts({hub,products:catalogue.products}):view==='product'?renderProductEditor({hub,detail:catalogue.detail}):view==='organisations'?renderOrganisations({hub,account,organisation,orgDomains}):view==='account'?renderAccount({hub,account,signIn}):view==='create-hub'?`<h1>Create a learning hub</h1><form id="create-hub">
     <label>Hub name<input name="displayName" maxlength="200" required></label>
     <label>Hub address<input name="slug" minlength="3" maxlength="63" pattern="[a-z0-9]+(-[a-z0-9]+)*" required aria-describedby="slug-help"></label>
     <p id="slug-help">Use lowercase letters, numbers and single hyphens.</p><button type="submit">Create hub</button></form>`:
@@ -41,12 +42,13 @@ label{display:block;margin:16px 0}input:not([type=checkbox]),textarea,select{dis
 textarea{min-height:100px}input[type=color]{height:48px;max-width:160px}.choice{display:flex;gap:12px;align-items:flex-start}.choice input{margin-top:7px}
 button{font:inherit;padding:10px 16px;border-radius:6px;border:0;background:#2456A6;color:white;cursor:pointer}button:disabled{opacity:.6}a{color:#2456A6}
 #status{min-height:24px}h2{margin-top:0}
+table{width:100%;border-collapse:collapse;display:block;overflow-x:auto}th,td{text-align:left;padding:8px;border-bottom:1px solid #dce2ea}
 </style><script defer src="/assets/plinth-shell.js"></script></head>
-<body data-hub-id="${e(hub.id)}" data-slug="${e(hub.slug)}" data-csrf="${e(csrfToken)}" data-org-id="${e(organisation?.organisation.id)}"><header><nav>
+<body data-hub-id="${e(hub.id)}" data-slug="${e(hub.slug)}" data-csrf="${e(csrfToken)}" data-org-id="${e(organisation?.organisation.id)}" data-product-id="${e(catalogue?.detail?.product.id)}"><header><nav>
 <a href="/h/${e(hub.slug)}">${e(hub.display_name)}</a><a href="/h/${e(hub.slug)}/member">Member area</a>
 <a href="/h/${e(hub.slug)}/create-hub">Create a hub</a>
 <a href="/h/${e(hub.slug)}/organisations">Organisations</a>
 <a href="/h/${e(hub.slug)}/account">Account</a>
-${membership && ['owner','admin'].includes(membership.role)?`<a href="/h/${e(hub.slug)}/admin">Hub admin</a>`:''}
+${membership && ['owner','admin'].includes(membership.role)?`<a href="/h/${e(hub.slug)}/admin">Hub admin</a><a href="/h/${e(hub.slug)}/admin/products">Products</a>`:''}
 <button type="button" id="logout">Sign out</button></nav></header><main>${content}<p id="status" role="status" aria-live="polite"></p></main></body></html>`;
 }

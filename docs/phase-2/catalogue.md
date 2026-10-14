@@ -73,8 +73,20 @@ Hub owners/admins (cookie writes need Origin and CSRF):
 Invalid input returns 400, rule violations and conflicts 409, and products the
 caller cannot administer 404. Apply migration 016 after 015 on existing databases.
 
+## Admin screens
+
+Hub owners/admins see a **Products** link in the navigation. `/h/{slug}/admin/products`
+lists every product, including drafts, with a create form;
+`/h/{slug}/admin/products/{id}` edits details, adds modules, lessons and prices,
+retires prices and publishes. Amounts are entered in rand and converted to
+cents. Access mode is locked once published and hidden for company products,
+which show their organisation instead of a price form. The screens use the
+existing host/hub session with Origin and CSRF checks, recheck the owner/admin
+role on every request, and escape all provider text. Signed-out visitors are
+sent to sign-in; other members get 404.
+
 ## Not yet built
 
-Admin authoring screens, lesson content and file uploads (assets), bundles,
+Lesson content and file uploads (assets), bundles,
 members-only shelf views, unpublishing/archiving, reordering and deletion,
 checkout and seat grants.

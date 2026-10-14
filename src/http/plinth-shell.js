@@ -1,10 +1,10 @@
 // Static browser code. Credentials remain in HttpOnly cookies, never storage.
-const {hubId,slug,csrf,orgId}=document.body.dataset;
+const {hubId,slug,csrf,orgId,productId}=document.body.dataset;
 const status=document.querySelector('#status');
 async function request(path,method,body) {
   const response=await fetch('/v1/hubs/'+hubId+'/'+path,{method,credentials:'same-origin',
     headers:{'content-type':'application/json','x-csrf-token':csrf},body:body===undefined?undefined:JSON.stringify(body)});
-  if(!response.ok)throw new Error(response.status===401?'Please sign in again.':response.status===403?'Please refresh the page or sign in again, then retry.':response.status===409?'The change conflicts with the current state. Refresh and review it.':'Your change could not be saved. Please try again.');
+  if(!response.ok)throw Object.assign(new Error(response.status===401?'Please sign in again.':response.status===403?'Please refresh the page or sign in again, then retry.':response.status===409?'The change conflicts with the current state. Refresh and review it.':'Your change could not be saved. Please try again.'),{status:response.status});
   return response.json();
 }
 async function saveConsents(form,onlyGrants=false) {
@@ -69,6 +69,43 @@ for(const button of document.querySelectorAll('.retire-notice'))button.addEventL
   button.disabled=true;
   try{await request('notices/retire','POST',{purpose:button.dataset.purpose,expectedVersion:button.dataset.version});window.location.reload();}
   catch(error){status.textContent=error.message;button.disabled=false;}
+});
+const product=path=>'catalogue/products/'+productId+path;
+formHandler('create-product',async form=>{
+  const data=Object.fromEntries(new FormData(form));
+  if(data.visibility!=='company')delete data.companyOrg;
+  try{const created=await request('catalogue/products','POST',data);window.location.assign('/h/'+slug+'/admin/products/'+created.id);}
+  catch(error){throw error.status===400?new Error('Check the details. Company products need a valid organisation ID and paid access.'):error;}
+});
+formHandler('product-details',async form=>{
+  const data=Object.fromEntries(new FormData(form));
+  if(form.elements.accessMode.disabled)delete data.accessMode;
+  await request(product(''),'PATCH',data);
+});
+formHandler('add-module',async form=>{await request(product('/modules'),'POST',Object.fromEntries(new FormData(form)));window.location.reload();});
+for(const form of document.querySelectorAll('.add-lesson'))form.addEventListener('submit',async event=>{
+  event.preventDefault();const button=form.querySelector('button');button.disabled=true;
+  try{await request(product('/lessons'),'POST',{moduleId:form.dataset.moduleId,title:form.elements.title.value,summary:form.elements.summary.value,previewAvailable:form.elements.previewAvailable.checked});window.location.reload();}
+  catch(error){status.textContent=error.message;button.disabled=false;}
+});
+formHandler('add-plan',async form=>{
+  const amount=form.elements.amount.value.replace(',','.'),model=form.elements.model.value;
+  if(!/^[0-9]+(\.[0-9]{1,2})?$/.test(amount))throw new Error('Enter the amount in rand, for example 1250.00.');
+  const [whole,fraction='']=amount.split('.'),amountCents=Number(whole)*100+Number(fraction.padEnd(2,'0'));
+  await request(product('/plans'),'POST',{model,amountCents,interval:model==='subscription'?form.elements.interval.value:null});window.location.reload();
+});
+for(const button of document.querySelectorAll('.retire-plan'))button.addEventListener('click',async()=>{
+  if(!window.confirm('Retire this price? It can no longer be bought.'))return;
+  button.disabled=true;
+  try{await request(product('/plans/'+button.dataset.planId),'DELETE');window.location.reload();}
+  catch(error){status.textContent=error.status===409?'A live paid product needs at least one active price. Add another price first.':error.message;button.disabled=false;}
+});
+document.querySelector('#publish-product')?.addEventListener('click',async event=>{
+  const button=event.currentTarget;
+  if(!window.confirm('Publish now? Published products cannot be withdrawn yet.'))return;
+  button.disabled=true;
+  try{await request(product('/publish'),'POST');window.location.reload();}
+  catch(error){status.textContent=error.status===409?'Add at least one lesson, and an active price for paid products, before publishing.':error.message;button.disabled=false;}
 });
 formHandler('create-organisation',async form=>{const org=await request('organisations','POST',Object.fromEntries(new FormData(form)));window.location.assign('/h/'+slug+'/organisations?org='+org.id);});
 formHandler('rename-organisation',form=>request('organisations/'+orgId,'PUT',Object.fromEntries(new FormData(form))));

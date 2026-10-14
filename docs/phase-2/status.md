@@ -22,8 +22,19 @@ last-price guard under concurrent retirement, company boundary hiding, foreign
 module rejection, cross-hub isolation, HTTP/CSRF and escaped storefront output.
 See [catalogue](catalogue.md).
 
+## Second implemented slice: catalogue admin screens
+
+Hub owners/admins can now author products in the browser: a product list with a
+create form at `/h/{slug}/admin/products`, and an editor for details, modules,
+lessons, prices and publishing at `/h/{slug}/admin/products/{id}`. No API or
+database rules changed; the screens call the catalogue API.
+
+Validation: `npm run verify` passed 184 checks; the full PostgreSQL 17 suite
+passed 115 checks on three consecutive runs. The new check covers sign-in
+redirects, member denial, escaping, outline and price rendering, publish-button
+state and company-product handling. Browser-level UAT of the forms is pending.
+
 ## Next
 
-1. Admin authoring screens for products, modules, lessons and prices.
-2. Lesson content and protected assets (text first; files need storage).
-3. Checkout and entitlements, once the payment provider decision is made.
+1. Lesson content and protected assets (text first; files need storage).
+2. Checkout and entitlements, once the payment provider decision is made.

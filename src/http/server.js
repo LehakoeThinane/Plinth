@@ -59,6 +59,22 @@ export function createApi({authenticate,accessForPrincipal,consentForPrincipal,n
         res.writeHead(200,{'content-type':'text/javascript; charset=utf-8','x-content-type-options':'nosniff','cache-control':'no-cache'});
         return res.end(script);
       }
+      const adminProducts=path.match(/^\/h\/([a-z0-9-]+)\/admin\/products(?:\/([0-9a-f-]{36}))?$/);
+      if(browserSessions && publicHubs && hubForPrincipal && catalogueForPrincipal && req.method==='GET' && adminProducts && (!adminProducts[2]||uuid.test(adminProducts[2]))) {
+        const hub=await publicHubs.resolve({slug:adminProducts[1]});
+        const principal=await browserSessions.principal(req);
+        if(!principal) {
+          if(hostedSignIn){res.writeHead(303,{'location':'/h/'+hub.slug+'/sign-in?view=admin','cache-control':'no-store'});return res.end();}
+          return send(401,{error:'unauthenticated'});
+        }
+        if(principal.hubId!==hub.id)return send(404,{error:'not_found'});
+        const membership=await hubForPrincipal(principal).membership(hub.id).catch(error=>{if(error.status===404)return null;throw error;});
+        if(!['owner','admin'].includes(membership?.role))return send(404,{error:'not_found'});
+        const products=catalogueForPrincipal(principal);
+        const catalogue=adminProducts[2]?{detail:await products.get(hub.id,adminProducts[2])}:{products:await products.list(hub.id)};
+        const html=renderApplicationShell({hub,view:adminProducts[2]?'product':'products',membership,catalogue,consents:[],csrfToken:principal.csrfToken});
+        res.writeHead(200,htmlHeaders);return res.end(html);
+      }
       const shell=path.match(/^\/h\/([a-z0-9-]+)\/(member|admin|join|create-hub|organisations|account)$/);
       if(browserSessions && publicHubs && hubForPrincipal && consentForPrincipal && req.method==='GET' && shell) {
         const hub=await publicHubs.resolve({slug:shell[1]});

@@ -22,7 +22,7 @@ are still pending.
 - A separate metadata-only public listing operation.
 - Recipient authorisation at message delivery, including suspension and company removal.
 - Progress conflict handling: monotonic completion/furthest position, independently mutable resume position.
-- Sixteen domain regression cases (`npm test`); the full local suite is 183 checks (`npm run verify`).
+- Sixteen domain regression cases (`npm test`); the full local suite is 184 checks (`npm run verify`).
 
 ## Run tests
 
@@ -56,7 +56,7 @@ The continuation adds six HTTP tests (npm run test:http). These verify routing/a
 
 ## Database verification without Docker
 
-Run npm run test:db:embedded. All 114 embedded SQL/RLS and database-backed HTTP checks pass. Full PostgreSQL 17 integration is still a separate CI requirement; the test-only embedded runner does not validate concurrent independent connections.
+Run npm run test:db:embedded. All 115 embedded SQL/RLS and database-backed HTTP checks pass. Full PostgreSQL 17 integration is still a separate CI requirement; the test-only embedded runner does not validate concurrent independent connections.
 
 ## Current Phase 0 status
 
@@ -72,7 +72,7 @@ Terraform staging/state-bootstrap configurations are now available and provider-
 ## Phase 2 in progress
 
 Hub owners/admins can author products with modules, lessons and ZAR prices and
-publish them to a public shelf at `/h/{slug}`, with product pages at
+publish them from admin screens to a public shelf at `/h/{slug}`, with product pages at
 `/h/{slug}/products/{id}`. Company products stay private to their organisation.
 See [Phase 2 status](docs/phase-2/status.md) and [catalogue](docs/phase-2/catalogue.md).
 
