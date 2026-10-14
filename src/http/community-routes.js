@@ -41,6 +41,13 @@ export const matchCommerceApi=routeTable([
     return [201,await c.checkout.checkout(h,{planId:input.planId,idempotencyKey:c.headers['idempotency-key'],returnUrlFor:id=>'/h/'+hub.slug+'/orders/'+id})];
   }],
   ['GET',`orders`,async(c,h)=>({orders:await c.orders.orders(h)})],
+  ['POST',`subscriptions`,async(c,h)=>{
+    const input=await c.body(),hub=await c.resolveSlug(input.slug);
+    if(hub.id!==h)throw Object.assign(new Error('Not found'),{status:404});
+    return [201,await c.checkout.subscribe(h,{tierId:input.tierId??null,planId:input.planId??null,idempotencyKey:c.headers['idempotency-key'],returnUrlFor:()=>'/h/'+hub.slug+'/subscriptions'})];
+  }],
+  ['GET',`subscriptions`,async(c,h)=>({subscriptions:await c.orders.subscriptions(h)})],
+  ['POST',`subscriptions/${id}/cancel`,(c,h,s)=>c.checkout.cancel(h,s)],
   ['GET',`orders/${id}`,(c,h,o)=>c.orders.order(h,o)],
   ['GET',`catalogue/sales`,(c,h)=>c.orders.sales(h)],
   ['POST',`catalogue/sales/${id}/refund`,(c,h,o)=>c.checkout.refund(h,o)]

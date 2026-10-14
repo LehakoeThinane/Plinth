@@ -56,7 +56,7 @@ export function renderProductPage(hub,{product,modules,plans},{signIn=false}={})
     return `<li>${title}${l.preview_available&&product.access_mode!=='open'?' · preview':''}</li>`;
   };
   const outline=modules.map(m=>`<li><strong>${e(m.title)}</strong><ol>${m.lessons.map(lessonItem).join('')}</ol></li>`).join('');
-  const pricing=product.access_mode==='entitled'?(plans.length?`<ul>${plans.map(p=>`<li class="price">${e(priceLabel(p))} ${p.model==='once_off'?`<a href="/h/${e(hub.slug)}/checkout/${e(product.id)}/${e(p.id)}">Buy now</a>`:'· opening soon'}</li>`).join('')}</ul>`:'<p>Not currently on sale.</p>')
+  const pricing=product.access_mode==='entitled'?(plans.length?`<ul>${plans.map(p=>`<li class="price">${e(priceLabel(p))} ${p.model==='per_seat'?'· for companies, opening soon':`<a href="/h/${e(hub.slug)}/checkout/${e(product.id)}/${e(p.id)}">${p.model==='subscription'?'Subscribe':'Buy now'}</a>`}</li>`).join('')}</ul>`:'<p>Not currently on sale.</p>')
     :`<p class="price">${product.access_mode==='members'?'Free for hub members':'Free'}</p>`;
   return layout(hub,{signIn,title:product.title+' · '+hub.display_name,main:`<section class="intro"><p class="eyebrow">${e(typeLabels[product.type]??'Course')}</p>
 <h1>${e(product.title)}</h1><p class="description">${e(product.summary)}</p></section>
@@ -104,8 +104,9 @@ const benefitLabels={product:'Course',space:'Community space',library:'Library'}
 export function renderMembership(hub,{tiers},{signIn=false}={}) {
   const cards=tiers.map(t=>`<li><p class="eyebrow">Tier ${e(t.rank)}</p><h3>${e(t.name)}</h3>
     <p class="price">${e(formatRand(t.amount_cents))} per ${t.billing_interval==='year'?'year':'month'}</p><p>${e(t.description)}</p>
-    <ul>${t.benefits.map(b=>`<li>${e(benefitLabels[b.target_type]??'')}: ${e(b.title)}</li>`).join('')||'<li>Benefits are being added.</li>'}</ul></li>`).join('');
+    <ul>${t.benefits.map(b=>`<li>${e(benefitLabels[b.target_type]??'')}: ${e(b.title)}</li>`).join('')||'<li>Benefits are being added.</li>'}</ul>
+    <p><a href="/h/${e(hub.slug)}/subscribe/${e(t.id)}">Subscribe</a></p></li>`).join('');
   return layout(hub,{signIn,title:'Membership · '+hub.display_name,main:`<section class="intro"><p class="eyebrow">Membership</p><h1>Choose how you take part</h1>
 <p class="description">Every member can join the hub for free. Tiers add courses, spaces and library items.</p></section>
-<section class="card">${cards?`<ul class="shelf">${cards}</ul><p>Subscriptions open soon.</p>`:'<p>This hub does not offer membership tiers.</p>'}</section>`});
+<section class="card">${cards?`<ul class="shelf">${cards}</ul><p>Cancel any time; access continues until the end of the paid period.</p>`:'<p>This hub does not offer membership tiers.</p>'}</section>`});
 }

@@ -22,7 +22,7 @@ are still pending.
 - A separate metadata-only public listing operation.
 - Recipient authorisation at message delivery, including suspension and company removal.
 - Progress conflict handling: monotonic completion/furthest position, independently mutable resume position.
-- Sixteen domain regression cases (`npm test`); the full local suite is 222 checks (`npm run verify`).
+- Sixteen domain regression cases (`npm test`); the full local suite is 226 checks (`npm run verify`).
 
 ## Run tests
 
@@ -56,7 +56,7 @@ The continuation adds six HTTP tests (npm run test:http). These verify routing/a
 
 ## Database verification without Docker
 
-Run npm run test:db:embedded. All 149 embedded SQL/RLS and database-backed HTTP checks pass. Full PostgreSQL 17 integration is still a separate CI requirement; the test-only embedded runner does not validate concurrent independent connections.
+Run npm run test:db:embedded. All 153 embedded SQL/RLS and database-backed HTTP checks pass. Full PostgreSQL 17 integration is still a separate CI requirement; the test-only embedded runner does not validate concurrent independent connections.
 
 ## Current Phase 0 status
 
@@ -101,5 +101,5 @@ with fresh provider sign-in and recent-session checks; see
 [account linking](docs/phase-1/account-linking.md).
 See [authentication setup](docs/phase-1/authentication.md).
 `npm run dev` remains a health shell; it does not enable test authentication or
-seed accounts. Apply migrations 003–026 in order to an
+seed accounts. Apply migrations 003–027 in order to an
 existing local database; fresh Compose volumes and CI apply them automatically.

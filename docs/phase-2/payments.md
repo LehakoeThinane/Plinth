@@ -64,8 +64,38 @@ one transaction: the order becomes `refunded`, every sale entry gets a reversing
 swapped (originals untouched), and the purchase entitlement is revoked, so access ends at once.
 Partial refunds are logged as `refund_review` and never half-applied. Migration 026.
 
+## Subscriptions
+
+Members subscribe to a published membership tier (`/h/{slug}/subscribe/{tier}`, linked from
+the Membership page) or to a product's subscription price (Subscribe on the product page), with
+`POST /v1/hubs/{hub}/subscriptions` (`{tierId}` or `{planId}`, `slug`, `Idempotency-Key`).
+
+- **Start:** a pending subscription and its first order are created; the provider keeps a card
+  authorisation. The first verified payment activates the subscription and grants access
+  (tier or product entitlement) until the end of the first period. A pending subscription from an
+  abandoned checkout never blocks subscribing again; if a second start is paid while one is
+  already live, it goes to `review` for a refund instead of being lost.
+- **Renewal:** a signed `subscription.renewed` event creates a paid renewal order with its own
+  balanced ledger entries and extends the period and access.
+- **Failed renewal:** `subscription.renewal_failed` marks the subscription `past_due` and keeps
+  access for a 7-day grace period after the paid period.
+- **Cancel:** `POST .../subscriptions/{id}/cancel` stops renewals; access runs to the end of the
+  paid period, and later renewal events are ignored.
+- **Refund of the first payment** ends the subscription and its access.
+
+Members manage subscriptions at `/h/{slug}/subscriptions`. With the stand-in provider, a TEST
+MODE page simulates successful and failed renewals. Prices are re-checked against the published
+tier or subscription plan, as for purchases. Upgrades and downgrades with pro-rated charges, and
+the job that ends access after grace without an event, wait for the real provider's stored-card
+behaviour. Migration 027 adds `commerce.subscriptions`, order kinds, tier order lines and
+subscription-linked entitlements.
+
+It also narrows duplicate detection: only a repeated provider event id is treated as a
+duplicate. Before, any uniqueness failure inside the payment function was reported as
+"duplicate", which could have hidden a real payment.
+
 ## Not yet built
 
 VAT (needs providers' VAT registration and invoices), chargebacks, partial refunds, the 15-minute reconciliation job, settlement import,
-subscriptions for tiers and products, per-seat purchases and seat assignment,
+upgrades/downgrades, per-seat purchases and seat assignment,
 receipts by email, and a real provider adapter.
