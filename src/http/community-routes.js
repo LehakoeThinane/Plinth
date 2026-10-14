@@ -42,5 +42,6 @@ export const matchCommerceApi=routeTable([
   }],
   ['GET',`orders`,async(c,h)=>({orders:await c.orders.orders(h)})],
   ['GET',`orders/${id}`,(c,h,o)=>c.orders.order(h,o)],
-  ['GET',`catalogue/sales`,(c,h)=>c.orders.sales(h)]
+  ['GET',`catalogue/sales`,(c,h)=>c.orders.sales(h)],
+  ['POST',`catalogue/sales/${id}/refund`,(c,h,o)=>c.checkout.refund(h,o)]
 ]);

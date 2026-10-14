@@ -1,5 +1,5 @@
 import { escapeText as e,formatRand } from './storefront.js';
-const statuses={pending:'Waiting for payment confirmation',paid:'Paid',failed:'Payment failed',review:'Under review'};
+const statuses={pending:'Waiting for payment confirmation',paid:'Paid',failed:'Payment failed',review:'Under review',refunded:'Refunded'};
 /** The stand-in provider's hosted page: obviously not a real payment screen. */
 export function renderTestPayment(session) {
   const ref=encodeURIComponent(session.reference);
@@ -31,8 +31,9 @@ export function renderOrder({hub,order}) {
 const accounts={buyer_payment:'Buyer payments',provider_revenue:'Your revenue',vat_payable:'VAT payable',payment_fees:'Payment fees'};
 export function renderSales({hub,sales}) {
   const ledger=sales.ledger.map(l=>`<tr><td>${e(accounts[l.account]??l.account)}</td><td>${e(formatRand(l.debit_cents))}</td><td>${e(formatRand(l.credit_cents))}</td></tr>`).join('');
-  const orders=sales.orders.map(o=>`<tr><td>${e(o.title)}</td><td>${e(formatRand(o.total_cents))}</td><td>${e(statuses[o.status]??o.status)}</td><td><code>${e(o.buyer_id)}</code></td><td>${e(o.created_at)}</td></tr>`).join('');
+  const orders=sales.orders.map(o=>`<tr><td>${e(o.title)}</td><td>${e(formatRand(o.total_cents))}</td><td>${e(statuses[o.status]??o.status)}</td><td><code>${e(o.buyer_id)}</code></td><td>${e(o.created_at)}</td>
+    <td>${o.status==='paid'?`<button type="button" class="refund-order" data-order-id="${e(o.id)}">Refund</button>`:''}</td></tr>`).join('');
   return `<h1>Sales</h1><section><h2>Ledger</h2><p>Double-entry totals. Entries are never edited; corrections are reversing entries.</p>
     ${ledger?`<table><thead><tr><th>Account</th><th>Debits</th><th>Credits</th></tr></thead><tbody>${ledger}</tbody></table>`:'<p>No sales yet.</p>'}</section>
-    <section><h2>Orders</h2>${orders?`<table><thead><tr><th>Product</th><th>Total</th><th>Status</th><th>Buyer</th><th>Placed</th></tr></thead><tbody>${orders}</tbody></table>`:'<p>No orders yet.</p>'}</section>`;
+    <section><h2>Orders</h2>${orders?`<table><thead><tr><th>Product</th><th>Total</th><th>Status</th><th>Buyer</th><th>Placed</th><th></th></tr></thead><tbody>${orders}</tbody></table>`:'<p>No orders yet.</p>'}</section>`;
 }

@@ -205,6 +205,10 @@ document.querySelector('#start-checkout')?.addEventListener('click',async event=
   const messages={join_first:'Join this hub before buying.',already_owned:'You already have this product. Find it in My learning.',not_yet_supported:'This price type is not on sale yet.'};
   status.textContent=messages[result.error]??'Checkout could not start. Please try again.';button.disabled=false;
 });
+clickAll('.refund-order',async b=>{
+  if(!window.confirm('Refund this order in full? The buyer loses access when the provider confirms.'))return false;
+  await request('catalogue/sales/'+b.dataset.orderId+'/refund','POST');
+});
 formHandler('create-enquiry',async form=>{
   const data=Object.fromEntries(new FormData(form));if(!data.requesterOrg)delete data.requesterOrg;
   const created=await request('enquiries','POST',data);window.location.assign('/h/'+slug+'/enquiries/'+created.id);

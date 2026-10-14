@@ -55,9 +55,17 @@ lines, payment events, the ledger and entitlement `source`/`order_id`. Bootstrap
 `plinth_commerce_executor` (NOLOGIN) and `plinth_payments` (LOGIN, managed secret)
 before applying it after 024; local Compose and CI do this.
 
+## Refunds
+
+Hub owners/admins refund a paid order in full from the Sales page
+(`POST /v1/hubs/{hub}/catalogue/sales/{order}/refund`). The provider refunds and confirms with a
+signed `payment.refunded` event (the stand-in confirms at once), applied by the same function in
+one transaction: the order becomes `refunded`, every sale entry gets a reversing entry with sides
+swapped (originals untouched), and the purchase entitlement is revoked, so access ends at once.
+Partial refunds are logged as `refund_review` and never half-applied. Migration 026.
+
 ## Not yet built
 
-VAT (needs providers' VAT registration and invoices), refunds and chargebacks
-with reversing entries, the 15-minute reconciliation job, settlement import,
+VAT (needs providers' VAT registration and invoices), chargebacks, partial refunds, the 15-minute reconciliation job, settlement import,
 subscriptions for tiers and products, per-seat purchases and seat assignment,
 receipts by email, and a real provider adapter.

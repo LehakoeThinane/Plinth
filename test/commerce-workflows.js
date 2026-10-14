@@ -9,7 +9,7 @@ import { MemoryAccessCache } from '../src/cache/memory.js';
 import { auditPolicies } from '../src/db/policy-audit.js';
 export async function commerceChecks({admin,app,db,paymentsPool,provider,hubId,userA,check,base,fetch,slug,testUsers}) {
   const catalogue=new CatalogueRepository(db,userA),payments=new PaymentsRepository(paymentsPool);
-  const checkout=user=>new CheckoutService({orders:new CommerceRepository(db,user),provider});
+  const checkout=user=>new CheckoutService({orders:new CommerceRepository(db,user),provider,payments});
   const start=(user,planId,key=randomUUID())=>checkout(user).checkout(hubId,{planId,idempotencyKey:key,returnUrlFor:id=>'/h/'+slug+'/orders/'+id});
   const pay=(reference,approved=true)=>{const done=provider.complete(reference,approved);return handlePaymentWebhook({provider,payments},done.body,done.headers);};
   const referenceOf=orderId=>admin.query('SELECT psp_reference FROM commerce.orders WHERE id=$1',[orderId]).then(r=>r.rows[0].psp_reference);
@@ -79,7 +79,25 @@ export async function commerceChecks({admin,app,db,paymentsPool,provider,hubId,u
     try{await c.query('BEGIN');await c.query('DROP POLICY hub_scope ON commerce.orders');await assert.rejects(auditPolicies(c),/Unsafe tenant policies/);}
     finally{await c.query('ROLLBACK');c.release();}
   });
-  await check('HTTP checkout, the test payment page and the webhook complete a purchase end to end',async()=>{
+  await check('a full refund reverses the ledger and ends access; only admins can request it',async()=>{
+    await assert.rejects(checkout(buyer).refund(hubId,order.orderId),{status:404});
+    assert.deepEqual(await checkout(userA).refund(hubId,order.orderId),{outcome:'refunded'});
+    assert.equal((await admin.query('SELECT status FROM commerce.orders WHERE id=$1',[order.orderId])).rows[0].status,'refunded');
+    const totals=(await admin.query(`SELECT account,sum(debit_cents)::bigint AS d,sum(credit_cents)::bigint AS c,count(*) FILTER (WHERE entry_type='refund')::int AS r
+      FROM commerce.ledger_entries WHERE order_id=$1 GROUP BY account ORDER BY account`,[order.orderId])).rows;
+    assert.ok(totals.every(t=>t.d===t.c&&t.r===1),'every account nets to zero through one reversing entry');
+    assert.equal((await admin.query('SELECT revoked FROM access.entitlements WHERE order_id=$1',[order.orderId])).rows[0].revoked,true);
+    const access=new AccessService(new PostgresAccessRepository(db,buyer),new MemoryAccessCache());
+    assert.notEqual((await access.open({hubId,userId:buyer,lessonId:lesson})).decision,'allowed');
+    await assert.rejects(checkout(userA).refund(hubId,order.orderId),{status:409,code:'not_refundable'});
+    const reference=await referenceOf(order.orderId);
+    assert.equal(await payments.record({provider:'test',id:'evt_'+randomUUID(),type:'payment.refunded',reference,amountCents:50000,feeCents:0,payloadHash:'c'.repeat(64)}),'ignored');
+    // A partial refund is never half-applied.
+    const again=await start(buyer,plan);await pay(await referenceOf(again.orderId));
+    const againRef=await referenceOf(again.orderId);
+    assert.equal(await payments.record({provider:'test',id:'evt_'+randomUUID(),type:'payment.refunded',reference:againRef,amountCents:100,feeCents:0,payloadHash:'d'.repeat(64)}),'refund_review');
+    assert.equal((await admin.query('SELECT status FROM commerce.orders WHERE id=$1',[again.orderId])).rows[0].status,'paid');
+  });  await check('HTTP checkout, the test payment page and the webhook complete a purchase end to end',async()=>{
     const auth={authorization:'Bearer learner-a'},key=randomUUID();
     const started=await fetch(base+'/v1/hubs/'+hubId+'/checkout',{method:'POST',headers:{...auth,'idempotency-key':key},body:JSON.stringify({planId:plan,slug})});
     assert.equal(started.status,201);const {orderId,redirectUrl}=await started.json();

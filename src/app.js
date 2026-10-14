@@ -44,7 +44,7 @@ export function createApplication({pool,authenticate,browserSessions,hostedSignI
     // Commerce needs both a payment provider adapter and the payments database login.
     ...(paymentProvider&&paymentsPool?{paymentProvider,payments:new PaymentsRepository(paymentsPool),
       ordersForPrincipal:principal=>new CommerceRepository(database,principal.userId),
-      checkoutForPrincipal:principal=>new CheckoutService({orders:new CommerceRepository(database,principal.userId),provider:paymentProvider})}:{}),logoForPrincipal:brandingStore?principal=>new LogoService({store:brandingStore,hubs:new HubRepository(database,principal.userId)}):undefined,onError,noticeForPrincipal:principal=>new NoticeRepository(database,principal.userId),identityForPrincipal:principal=>new IdentityRepository(database,principal.userId),
+      checkoutForPrincipal:principal=>new CheckoutService({orders:new CommerceRepository(database,principal.userId),provider:paymentProvider,payments:new PaymentsRepository(paymentsPool)})}:{}),logoForPrincipal:brandingStore?principal=>new LogoService({store:brandingStore,hubs:new HubRepository(database,principal.userId)}):undefined,onError,noticeForPrincipal:principal=>new NoticeRepository(database,principal.userId),identityForPrincipal:principal=>new IdentityRepository(database,principal.userId),
     organisationForPrincipal:principal=>new OrganisationRepository(database,principal.userId),publicHubs:new HubRepository(database),hubForPrincipal:principal=>new HubRepository(database,principal.userId),consentForPrincipal:principal=>new ConsentRepository(database,principal.userId),accessForPrincipal:principal=>
     new AccessService(new PostgresAccessRepository(database,principal.userId),cache)});
 }

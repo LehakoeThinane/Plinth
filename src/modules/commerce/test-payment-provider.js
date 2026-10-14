@@ -36,6 +36,13 @@ export class TestPaymentProvider {
       reference,amountCents:session.amountCents,feeCents});
     return {body,headers:{'x-test-signature':this.#sign(body)},returnUrl:session.returnUrl};
   }
+  /** A provider refund. Real providers confirm later by webhook; the stand-in
+   * returns the signed confirmation at once so the same path applies it.
+   */
+  refund({reference,amountCents}) {
+    const body=JSON.stringify({id:'evt_'+randomUUID(),type:'payment.refunded',reference,amountCents,feeCents:0});
+    return {body,headers:{'x-test-signature':this.#sign(body)}};
+  }
   #sign(body){return createHmac('sha256',this.#secret).update(body).digest('hex');}
   verifyWebhook(rawBody,headers) {
     const signature=headers['x-test-signature'];

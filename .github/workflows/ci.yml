@@ -64,6 +64,7 @@ jobs:
       - run: psql -h localhost -U plinth_admin -d plinth -v ON_ERROR_STOP=1 -f db/migrations/023-tiers.sql
       - run: psql -h localhost -U plinth_admin -d plinth -v ON_ERROR_STOP=1 -f db/migrations/024-message-order.sql
       - run: psql -h localhost -U plinth_admin -d plinth -v ON_ERROR_STOP=1 -f db/migrations/025-orders-ledger.sql
+      - run: psql -h localhost -U plinth_admin -d plinth -v ON_ERROR_STOP=1 -f db/migrations/026-refunds.sql
       - run: npm test
       - run: npm run test:tenant
       - run: npm run test:http

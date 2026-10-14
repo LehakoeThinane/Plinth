@@ -69,6 +69,19 @@ export class CommerceRepository {
       if(!row)throw fail(404);return row;
     });
   }
+  /** Owners/admins: what a refund needs. The refund itself is applied only from
+   * the provider's signed confirmation.
+   */
+  async refundable(hubId,orderId) {
+    if(!uuid.test(orderId??''))throw fail(400);
+    return this.#run(hubId,async tx=>{
+      if(!(await tx.query('SELECT app.is_hub_admin() AS ok')).rows[0].ok)throw fail(404);
+      const row=(await tx.query('SELECT id,status,total_cents,psp_provider,psp_reference FROM commerce.orders WHERE id=$1',[orderId])).rows[0];
+      if(!row)throw fail(404);
+      if(row.status!=='paid')throw fail(409,'not_refundable');
+      return row;
+    });
+  }
   /** Owners/admins: the hub's orders and ledger totals by account. */
   async sales(hubId) {
     return this.#run(hubId,async tx=>{
@@ -76,6 +89,7 @@ export class CommerceRepository {
       const orders=(await tx.query(`SELECT o.id,o.status,o.total_cents,o.buyer_id,o.created_at,o.paid_at,p.title
         FROM commerce.orders o JOIN commerce.order_lines l ON l.hub_id=o.hub_id AND l.order_id=o.id AND l.line=1
         JOIN catalogue.products p ON p.hub_id=o.hub_id AND p.id=l.product_id ORDER BY o.created_at DESC LIMIT 200`)).rows;
+      // Net totals per account: refunds are reversing entries, so they net out here.
       const ledger=(await tx.query(`SELECT account,sum(debit_cents)::bigint AS debit_cents,sum(credit_cents)::bigint AS credit_cents
         FROM commerce.ledger_entries GROUP BY account ORDER BY account`)).rows;
       return {orders,ledger};

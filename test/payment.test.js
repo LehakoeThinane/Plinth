@@ -15,6 +15,11 @@ test('only events signed by this provider instance verify',()=>{
   assert.equal(provider.verifyWebhook(done.body.replace('50000','100'),done.headers),null);
   for(const headers of [{},{'x-test-signature':'nothex'},{'x-test-signature':'0'.repeat(64)}])assert.equal(provider.verifyWebhook(done.body,headers),null);
 });
+test('refund confirmations are signed provider events',()=>{
+  const provider=new TestPaymentProvider({environment:'test'}),other=new TestPaymentProvider({environment:'test'});
+  const refund=provider.refund({reference:'test_x',amountCents:50000});
+  assert.deepEqual([provider.verifyWebhook(refund.body,refund.headers).type,other.verifyWebhook(refund.body,refund.headers)],['payment.refunded',null]);
+});
 test('a session completes once and expires',()=>{
   let now=Date.now();const provider=new TestPaymentProvider({environment:'test',now:()=>now});
   const first=provider.createSession(order);assert.ok(provider.complete(first.reference,false));assert.equal(provider.complete(first.reference,true),null);
