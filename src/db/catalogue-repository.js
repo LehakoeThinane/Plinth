@@ -49,8 +49,11 @@ export class CatalogueRepository {
   }
   async #outline(tx,productId,{publishedOnly}) {
     const modules=(await tx.query('SELECT id,position,title FROM catalogue.modules WHERE product_id=$1 ORDER BY position',[productId])).rows;
-    const lessons=(await tx.query(`SELECT id,module_id,position,title,summary,status,preview_available FROM catalogue.lessons
-      WHERE product_id=$1 AND module_id IS NOT NULL ${publishedOnly?"AND status='published'":''} ORDER BY position`,[productId])).rows;
+    // Only the admin view joins lesson bodies; the public outline never carries content.
+    const lessons=(await tx.query(`SELECT l.id,l.module_id,l.position,l.title,l.summary,l.status,l.preview_available
+      ${publishedOnly?'':',c.body'} FROM catalogue.lessons l
+      ${publishedOnly?'':'LEFT JOIN content.lesson_bodies c ON c.hub_id=l.hub_id AND c.lesson_id=l.id'}
+      WHERE l.product_id=$1 AND l.module_id IS NOT NULL ${publishedOnly?"AND l.status='published'":''} ORDER BY l.position`,[productId])).rows;
     return modules.map(m=>({...m,lessons:lessons.filter(l=>l.module_id===m.id).map(({module_id,...l})=>l)}));
   }
   #plans(tx,productId,activeOnly) {
@@ -119,6 +122,19 @@ export class CatalogueRepository {
       await tx.query(`INSERT INTO catalogue.lessons(hub_id,id,product_id,boundary_id,module_id,position,title,summary,preview_available)
         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,[hubId,lessonId,product.id,product.boundary_id,moduleId,position,title,summary,input.previewAvailable??false]);
       return {id:lessonId,moduleId,position,title,status:'draft'};
+    });
+  }
+  async setLessonContent(hubId,productId,lessonId,input) {
+    id(lessonId);
+    if(typeof input.body!=='string'||input.body.length>50000)throw fail(400);
+    return this.#run(hubId,true,async tx=>{
+      const product=await this.#lock(tx,productId);
+      // The composite key ties the body to this product's lesson and boundary.
+      const lesson=(await tx.query('SELECT id FROM catalogue.lessons WHERE id=$1 AND product_id=$2',[lessonId,product.id])).rows[0];
+      if(!lesson)throw fail(404);
+      await tx.query(`INSERT INTO content.lesson_bodies(hub_id,lesson_id,boundary_id,body) VALUES($1,$2,$3,$4)
+        ON CONFLICT(hub_id,lesson_id) DO UPDATE SET body=excluded.body`,[hubId,lessonId,product.boundary_id,input.body]);
+      return {lessonId,length:input.body.length};
     });
   }
   async addPlan(hubId,productId,input) {

@@ -31,7 +31,7 @@ export async function catalogueChecks({admin,app,db,hubId,otherHub,userA,userB,c
       finally{await c.query('ROLLBACK');c.release();}
     }
   });
-  let live;
+  let live,companyProduct;
   await check('a drafted product with modules, lessons and prices reaches the shelf only when published',async()=>{
     const created=await owner.create(hubId,course);
     const first=await owner.addModule(hubId,created.id,{title:'Foundations'}),second=await owner.addModule(hubId,created.id,{title:'Practice'});
@@ -82,7 +82,7 @@ export async function catalogueChecks({admin,app,db,hubId,otherHub,userA,userB,c
     const company={...course,title:'Absa leadership',visibility:'company',companyOrg};
     await assert.rejects(owner.create(hubId,{...company,companyOrg:randomUUID()}),{status:400});
     await assert.rejects(owner.create(hubId,{...company,accessMode:'open'}),{status:400});
-    const created=await product(company,{plan:false});
+    const created=await product(company,{plan:false});companyProduct=created.id;
     await assert.rejects(owner.addPlan(hubId,created.id,{model:'per_seat',amountCents:10000}),{status:409});
     await owner.publish(hubId,created.id);
     assert.ok(!(await shelf.shelf(hubId)).some(p=>p.id===created.id));await assert.rejects(shelf.page(hubId,created.id),{status:404});
@@ -117,7 +117,25 @@ export async function catalogueChecks({admin,app,db,hubId,otherHub,userA,userB,c
     const storefront=await (await fetch(base+'/h/'+slug)).text();
     assert.ok(storefront.includes('Speak up, revised'));assert.ok(storefront.includes('From R200.00'));assert.ok(!storefront.includes('<script>up'));
     const page=await fetch(base+'/h/'+slug+'/products/'+live.id);assert.equal(page.status,200);
-    const html=await page.text();assert.ok(html.includes('R1 250.00'));assert.ok(html.includes('R200.00 per month'));assert.ok(html.includes('Breathing · free preview'));
+    const html=await page.text();assert.ok(html.includes('R1 250.00'));assert.ok(html.includes('R200.00 per month'));assert.ok(html.includes('>Breathing</a> · preview'));
     assert.equal((await fetch(base+'/v1/hubs/'+hubId+'/products/'+randomUUID())).status,404);
+  });
+  await check('admin product screens are owner/admin-only, escaped and reflect structure and prices',async()=>{
+    const host='learn-new.example',pages=base+'/h/'+slug+'/admin/products';
+    const sessionFor=async token=>(await fetch(base+'/v1/hubs/'+hubId+'/session',{method:'POST',headers:{authorization:'Bearer '+token,host,origin:'https://'+host}})).headers.get('set-cookie').split(';')[0];
+    const ownerCookie=await sessionFor('learner-a'),learnerCookie=await sessionFor('learner-b');
+    await owner.create(hubId,course);
+    const anonymous=await fetch(pages,{headers:{host}});assert.equal(anonymous.status,303);assert.equal(anonymous.headers.get('location'),'/h/'+slug+'/sign-in?view=admin');
+    assert.equal((await fetch(pages,{headers:{host,cookie:learnerCookie}})).status,404);
+    assert.equal((await fetch(pages+'/'+live.id,{headers:{host,cookie:learnerCookie}})).status,404);
+    const list=await fetch(pages,{headers:{host,cookie:ownerCookie}});assert.equal(list.status,200);
+    const listHtml=await list.text();assert.ok(listHtml.includes('id="create-product"'));assert.ok(listHtml.includes('Speak up, revised'));
+    assert.ok(listHtml.includes('&lt;script&gt;up&lt;/script&gt;'));assert.ok(!listHtml.includes('<script>up'));
+    const editor=await (await fetch(pages+'/'+live.id,{headers:{host,cookie:ownerCookie}})).text();
+    for(const text of ['Foundations','Breathing · published · preview shown','R1 250.00 once-off','R200.00 per month','id="add-plan"','data-product-id="'+live.id+'"'])assert.ok(editor.includes(text),text);
+    assert.ok(!editor.includes('id="publish-product"'));
+    const company=await (await fetch(pages+'/'+companyProduct,{headers:{host,cookie:ownerCookie}})).text();
+    assert.ok(company.includes('Private to organisation'));assert.ok(!company.includes('id="add-plan"'));
+    assert.equal((await fetch(pages+'/'+randomUUID(),{headers:{host,cookie:ownerCookie}})).status,404);
   });
 }

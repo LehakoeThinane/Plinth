@@ -92,7 +92,10 @@ export async function noticeChecks({admin,app,db,hubId,otherHub,userA,userB,chec
     assert.equal((await consent.set(hubId,{purpose:'research',granted:false,noticeVersion:'v6'})).granted,false);
     const row=(await admin.query("SELECT retired_by,notice_version FROM compliance.notice_retirements WHERE hub_id=$1 AND purpose='research'",[hubId])).rows;
     assert.deepEqual(row,[{retired_by:userA,notice_version:'v6'}]);
-    const latest=(await owner.history(hubId)).publications[0];assert.equal(latest.kind,'retired');assert.equal(latest.actor,userA);
+    // Look the entry up rather than assuming it sorts first: ordering across
+    // transactions follows the database clock, which a VM time correction can step.
+    const retirement=(await owner.history(hubId,{limit:100})).publications.find(r=>r.kind==='retired'&&r.purpose==='research');
+    assert.equal(retirement.notice_version,'v6');assert.equal(retirement.actor,userA);
   });
   await check('retirement history and stamps cannot be forged or undone in place',async()=>{
     await assert.rejects(app.query("INSERT INTO compliance.notice_retirements(hub_id,purpose,notice_version) VALUES($1,'research','forged')",[hubId]),{code:'42501'});
