@@ -24,6 +24,12 @@ import { accountLinkChecks } from './account-link-workflows.js';
 import { organisationDomainChecks } from './org-domain-workflows.js';
 import { catalogueChecks } from './catalogue-workflows.js';
 import { lessonChecks } from './lesson-workflows.js';
+import { libraryChecks } from './library-workflows.js';
+import { communityChecks } from './community-workflows.js';
+import { enquiryChecks } from './enquiry-workflows.js';
+import { tierChecks } from './tier-workflows.js';
+import { commerceChecks } from './commerce-workflows.js';
+import { TestPaymentProvider } from '../src/modules/commerce/test-payment-provider.js';
 import { LocalBrandingStore } from '../src/storage/local-branding.js';
 import { mkdir,mkdtemp,rm } from 'node:fs/promises';
 import { resolve,relative,isAbsolute } from 'node:path';
@@ -50,6 +56,13 @@ const auth=embedded?.auth??new pg.Pool({connectionString:process.env.TEST_AUTH_D
 const domainUrl=embeddedMode?null:new URL(process.env.TEST_DOMAIN_DATABASE_URL??process.env.DATABASE_URL);
 if(domainUrl)domainUrl.username='plinth_domain_verifier';
 const domains=embedded?.domains??new pg.Pool({connectionString:domainUrl.href,max:2,connectionTimeoutMillis:10000});
+const maintenanceUrl=embeddedMode?null:new URL(process.env.TEST_MAINTENANCE_DATABASE_URL??process.env.DATABASE_URL);
+if(maintenanceUrl&&!process.env.TEST_MAINTENANCE_DATABASE_URL)maintenanceUrl.username='plinth_maintenance';
+const paymentsUrl=embeddedMode?null:new URL(process.env.TEST_PAYMENTS_DATABASE_URL??process.env.DATABASE_URL);
+if(paymentsUrl&&!process.env.TEST_PAYMENTS_DATABASE_URL)paymentsUrl.username='plinth_payments';
+const paymentsPool=embedded?.payments??new pg.Pool({connectionString:paymentsUrl.href,max:2,connectionTimeoutMillis:10000});
+const paymentProvider=new TestPaymentProvider({environment:'test'});
+const maintenance=embedded?.maintenance??new pg.Pool({connectionString:maintenanceUrl.href,max:1,connectionTimeoutMillis:10000});
 const domainRecords=new Map();
 const authRepository=new AuthRepository(auth);
 const db=new TenantDatabase(app);
@@ -267,7 +280,7 @@ try {
   const provider=await providerFixture(issuer);
   const hostedSignIn=new HostedSignIn({configuration:provider.configuration,store:authRepository,sessions:browserSessions,
     resolveUser:(iss,sub)=>authRepository.resolveUser(iss,sub),linkIdentity:(session,iss,sub)=>authRepository.linkIdentity(session,iss,sub)});
-  server=createApplication({pool:app,cache,browserSessions,hostedSignIn,accountLinks:accountLinksFor(hostedSignIn,authRepository),brandingStore,domainVerificationPool:domains,resolveDomainTxt:async name=>domainRecords.get(name)??[],authenticate:async token=>token==='learner-a'?{userId:userA,expiresAt:new Date(Date.now()+600000)}:token==='learner-b'?{userId:userB,expiresAt:new Date(Date.now()+600000)}:managedAuthenticate(token)});
+  server=createApplication({pool:app,cache,browserSessions,hostedSignIn,accountLinks:accountLinksFor(hostedSignIn,authRepository),brandingStore,domainVerificationPool:domains,resolveDomainTxt:async name=>domainRecords.get(name)??[],paymentProvider,paymentsPool,authenticate:async token=>token==='learner-a'?{userId:userA,expiresAt:new Date(Date.now()+600000)}:token==='learner-b'?{userId:userB,expiresAt:new Date(Date.now()+600000)}:managedAuthenticate(token)});
   server.listen(0,'127.0.0.1');await once(server,'listening');
   const base='http://127.0.0.1:'+server.address().port;
   const url=base+'/v1/hubs/'+a+'/lessons/'+lesson+'/access';
@@ -389,7 +402,12 @@ try {
   await logoChecks({admin,app,db,hubId:createdHub,otherHub:a,userA,check,embeddedMode,base,fetch,slug:createdSlug,store:brandingStore});
   await domainChecks({admin,app,domains,db,hubId:createdHub,otherHub:a,userA,userB,check,embeddedMode,base,fetch,slug:createdSlug,records:domainRecords});
   await catalogueChecks({admin,app,db,hubId:createdHub,otherHub:a,userA,userB,companyOrg:orgA,check,base,fetch,slug:createdSlug,embeddedMode});
-  await lessonChecks({admin,db,hubId:createdHub,userA,userB,companyOrg:orgA,check,base,fetch,slug:createdSlug,testUsers});
+  await lessonChecks({admin,db,hubId:createdHub,userA,userB,companyOrg:orgA,check,base,fetch,slug:createdSlug,testUsers,embeddedMode,maintenance,app});
+  await libraryChecks({admin,db,hubId:createdHub,userA,companyOrg:orgA,check,base,fetch,slug:createdSlug,testUsers});
+  await communityChecks({admin,app,db,hubId:createdHub,userA,companyOrg:orgA,check,base,fetch,slug:createdSlug,testUsers});
+  await enquiryChecks({admin,db,hubId:createdHub,userA,companyOrg:orgA,check,base,fetch,slug:createdSlug,testUsers});
+  await tierChecks({admin,db,hubId:createdHub,userA,companyOrg:orgA,check,base,fetch,slug:createdSlug,testUsers});
+  await commerceChecks({admin,app,db,paymentsPool,provider:paymentProvider,hubId:createdHub,userA,check,base,fetch,slug:createdSlug,testUsers});
   const browserHeaders={host:'learn-a.example',origin:'https://learn-a.example'};
   await check('browser session exchange requires a verified bearer and exact trusted origin',async()=>{
     const sessionUrl=base+'/v1/hubs/'+a+'/session';
@@ -514,6 +532,21 @@ try {
   try {
   await admin.query('DELETE FROM identity.login_attempts WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM content.lesson_bodies WHERE hub_id=ANY($1::uuid[])',[testHubs]);
+  await admin.query('DELETE FROM content.lesson_progress WHERE hub_id=ANY($1::uuid[])',[testHubs]);
+  await admin.query('DELETE FROM content.progress_requests WHERE hub_id=ANY($1::uuid[])',[testHubs]);
+  await admin.query('DELETE FROM content.lesson_opens WHERE hub_id=ANY($1::uuid[])',[testHubs]);
+  // Test cleanup only: the ledger is immutable by design, so this transaction
+  // briefly disables that trigger to remove the test hubs' entries.
+  {const c=await admin.connect();
+    try{await c.query('BEGIN');await c.query('ALTER TABLE commerce.ledger_entries DISABLE TRIGGER ledger_immutable');
+      await c.query('DELETE FROM commerce.ledger_entries WHERE hub_id=ANY($1::uuid[])',[testHubs]);
+      await c.query('ALTER TABLE commerce.ledger_entries ENABLE TRIGGER ledger_immutable');await c.query('COMMIT');}
+    catch(error){await c.query('ROLLBACK');throw error;}finally{c.release();}}
+  await admin.query("DELETE FROM commerce.payment_events WHERE reference IN (SELECT psp_reference FROM commerce.orders WHERE hub_id=ANY($1::uuid[])) OR reference LIKE 'test\\_%'",[testHubs]);
+  await admin.query('DELETE FROM commerce.order_lines WHERE hub_id=ANY($1::uuid[])',[testHubs]);
+  await admin.query('DELETE FROM commerce.orders WHERE hub_id=ANY($1::uuid[])',[testHubs]);
+  for(const table of ['reactions','comments','reports','posts','spaces'])await admin.query('DELETE FROM community.'+table+' WHERE hub_id=ANY($1::uuid[])',[testHubs]);
+  for(const table of ['messages','participants','enquiries','conversations'])await admin.query('DELETE FROM messaging.'+table+' WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM tenancy.domain_claims WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM identity.auth_sessions WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM identity.org_domain_claims WHERE org_id=ANY($1::uuid[])',[testOrgs]);
@@ -533,6 +566,9 @@ try {
   await admin.query('DELETE FROM tenancy.memberships WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM identity.org_members WHERE user_id=ANY($1::uuid[])',[testUsers]);
   await admin.query('DELETE FROM identity.users WHERE id=ANY($1::uuid[])',[testUsers]);
+  await admin.query('DELETE FROM library.items WHERE hub_id=ANY($1::uuid[])',[testHubs]);
+  await admin.query('DELETE FROM access.tier_benefits WHERE hub_id=ANY($1::uuid[])',[testHubs]);
+  await admin.query('DELETE FROM commerce.tiers WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM catalogue.plans WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM catalogue.lessons WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM catalogue.modules WHERE hub_id=ANY($1::uuid[])',[testHubs]);
@@ -542,5 +578,5 @@ try {
   await admin.query('DELETE FROM tenancy.hub_profiles WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM tenancy.hubs WHERE id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM identity.organisations WHERE id=ANY($1::uuid[])',[testOrgs]);
-  } finally { await app.end();await auth.end();await domains.end();await admin.end();if(embedded)await embedded.close();const path=relative(storageRoot,storageDirectory);assert.ok(path&&!path.startsWith('..')&&!isAbsolute(path));await rm(storageDirectory,{recursive:true,force:true}); }
+  } finally { await app.end();await auth.end();await domains.end();await maintenance.end();await paymentsPool.end();await admin.end();if(embedded)await embedded.close();const path=relative(storageRoot,storageDirectory);assert.ok(path&&!path.startsWith('..')&&!isAbsolute(path));await rm(storageDirectory,{recursive:true,force:true}); }
 }

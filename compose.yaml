@@ -27,6 +27,15 @@ services:
       - ./db/migrations/015-notice-retirement.sql:/docker-entrypoint-initdb.d/15-notice-retirement.sql:ro
       - ./db/migrations/016-catalogue.sql:/docker-entrypoint-initdb.d/16-catalogue.sql:ro
       - ./db/migrations/017-lesson-content.sql:/docker-entrypoint-initdb.d/17-lesson-content.sql:ro
+      - ./db/migrations/018-progress.sql:/docker-entrypoint-initdb.d/18-progress.sql:ro
+      - ./db/migrations/019-access-log.sql:/docker-entrypoint-initdb.d/19-access-log.sql:ro
+      - ./db/migrations/020-library.sql:/docker-entrypoint-initdb.d/20-library.sql:ro
+      - ./db/migrations/021-community.sql:/docker-entrypoint-initdb.d/21-community.sql:ro
+      - ./db/migrations/022-enquiries.sql:/docker-entrypoint-initdb.d/22-enquiries.sql:ro
+      - ./db/migrations/023-tiers.sql:/docker-entrypoint-initdb.d/23-tiers.sql:ro
+      - ./db/migrations/024-message-order.sql:/docker-entrypoint-initdb.d/24-message-order.sql:ro
+      - ./db/migrations/025-orders-ledger.sql:/docker-entrypoint-initdb.d/25-orders-ledger.sql:ro
+      - ./db/migrations/026-refunds.sql:/docker-entrypoint-initdb.d/26-refunds.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U plinth_admin -d plinth"]
       interval: 5s

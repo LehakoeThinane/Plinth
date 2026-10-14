@@ -17,7 +17,12 @@ export function renderProducts({hub,products}) {
     <label>Access<select name="accessMode">${options(modes,'entitled')}</select></label>
     <button>Create draft</button></form>`;
 }
-export function renderProductEditor({hub,detail}) {
+function renderOpens(opens) {
+  const rows=opens.map(o=>`<tr><td>${e(o.opened_at)}</td><td>${e(o.lesson_title)}</td><td><code>${e(o.user_id)}</code></td><td>${e(o.user_agent??'Unknown device')}</td></tr>`).join('');
+  return `<section><h2>Recent lesson opens</h2><p>Who received this product's lesson content, for investigating leaks. Entries cannot be edited and expire under the hub's retention policy.</p>
+    ${rows?`<table><thead><tr><th>When</th><th>Lesson</th><th>Account</th><th>Device</th></tr></thead><tbody>${rows}</tbody></table>`:'<p>No lesson opens yet.</p>'}</section>`;
+}
+export function renderProductEditor({hub,detail,opens=[]}) {
   const {product,modules,plans}=detail,live=product.status==='published',company=product.visibility==='company';
   const pending=modules.some(m=>m.lessons.some(l=>l.status==='draft'));
   const lessons=m=>m.lessons.map(l=>`<li>${e(l.title)} · ${e(l.status)}${l.preview_available?' · preview shown':''}
@@ -45,5 +50,6 @@ export function renderProductEditor({hub,detail}) {
     <label>Billing period <small>(subscriptions only)</small><select name="interval"><option value="month">Monthly</option><option value="year">Yearly</option></select></label>
     <button>Add price</button></form></section>`}
     <section><h2>Publishing</h2><p>${live?(pending?'Some lessons are still drafts.':'This product is live.'):'Publishing needs at least one lesson'+(company||product.access_mode!=='entitled'?'.':' and an active price.')} Published products cannot be withdrawn yet.</p>
-    ${!live||pending?`<button type="button" id="publish-product">${live?'Publish new lessons':'Publish product'}</button>`:''}</section>`;
+    ${!live||pending?`<button type="button" id="publish-product">${live?'Publish new lessons':'Publish product'}</button>`:''}</section>
+    ${renderOpens(opens)}`;
 }

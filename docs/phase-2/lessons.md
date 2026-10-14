@@ -49,9 +49,78 @@ after 016 on existing databases.
 Text is plain: a blank line starts a paragraph and a single newline breaks a
 line. It is escaped on output, so providers cannot add HTML or scripts.
 
+## Progress
+
+`PUT /v1/hubs/{hub}/lessons/{id}/progress` saves
+`{baseRevision, furthestPosition, resumePosition, completed}` with a required
+`Idempotency-Key` header (8–100 letters, digits, `-` or `_`). It needs a signed-in
+learner (bearer, or cookie with Origin and CSRF) who can open the lesson now;
+the decision and the write share one transaction, and otherwise it returns 404.
+
+- Completion and furthest position only move forward; resume position can move
+  back. A save whose `baseRevision` is stale keeps the stored resume position and
+  returns `resumeConflict: true`, so the client can reconcile instead of
+  believing its change applied.
+- The learner/lesson row is locked for the merge. Concurrent saves conflict and
+  are retried; a retry with the same key and payload returns the stored result,
+  and the same key with a different payload returns 409.
+- Positions are numbers from 0 to 10,000,000 (seconds for media; text lessons use
+  1 for "read to the end"). Opening an allowed lesson includes the learner's
+  progress.
+
+Migration 018 adds `content.lesson_progress` and `content.progress_requests`
+under hub, company-boundary and per-learner RLS. A trigger allows only one
+revision forward at a time and refuses moving furthest position or completion
+backwards; runtime cannot write another learner's rows. Apply it after 017.
+Stored idempotency records are not pruned yet.
+
+## My learning
+
+`GET /v1/hubs/{hub}/learning` and the **My learning** page at `/h/{slug}/learning`
+list, for an active member, the products they hold directly or through a tier,
+plus free products they have started, with lessons completed, a percentage and a
+Start/Continue link to the next unfinished lesson. Paid products disappear when
+their entitlement is revoked or expires, even if progress exists. Company
+products appear only for members of that company. It is a navigation aid; each
+lesson is still access-checked when opened. Signed-in learners see a **Mark as
+complete** button on lesson pages.
+
+## Lesson-open log
+
+Every time a signed-in person receives lesson content, `content.lesson_opens`
+records who, which lesson, when and the browser's user-agent (truncated to 300
+characters) as the device identifier. It is written in the same transaction as
+the access decision, so it reflects exactly the content that was served. Locked
+previews and signed-out opens of free lessons are not logged; there is no
+person to trace. This is the investigation trail from Deep dive 2: with a
+watermark it gives a provider a lead, but neither is proof on its own.
+
+Only active hub owners/admins can read it: in the product editor under
+**Recent lesson opens**, or through
+`GET /v1/hubs/{hub}/catalogue/products/{id}/opens?limit=&before=` (newest first,
+keyset paging by entry id). Company boundaries apply. Runtime credentials can
+add only the caller's own entries and cannot update or delete any.
+
+## Retention
+
+`npm run records:expire` removes lesson opens older than
+`ACCESS_LOG_RETENTION_DAYS` (1–3650, required, deliberately without a default:
+the period is still to be confirmed in [retention.md](../retention.md)) and
+idempotency records older than `IDEMPOTENCY_RETENTION_HOURS` (default 168,
+minimum 24). It is a dry run that reports counts unless run with
+`-- --apply`. It connects as `plinth_maintenance` (`MAINTENANCE_DATABASE_URL`), a
+login that can only execute two retention functions owned by the non-login
+`plinth_retention_executor`; it cannot read the tables, and application
+credentials cannot run the functions. Bootstrap both roles before migration 019
+on existing databases (local Compose and CI do this):
+
+```sql
+CREATE ROLE plinth_retention_executor NOLOGIN NOSUPERUSER NOBYPASSRLS;
+CREATE ROLE plinth_maintenance LOGIN NOSUPERUSER NOBYPASSRLS; -- managed secret in staging
+```
+
 ## Not yet built
 
 Video, audio and PDF assets with signed links, watermarking and stamping (Deep
-dive 2); progress saving (`PUT /lessons/{id}/progress`); an access log of lesson
-opens; a learner "my learning" view for navigating purchased products; and
+dive 2); a schedule for the retention job; an offline queue in the browser; and
 rich text formatting.

@@ -1,3 +1,7 @@
+// A space is a single-row chain: hub and company spaces need active membership
+// (company spaces also the company), tier spaces a tier benefit naming the space.
+const mapSpace=s=>({id:s.id,hubId:s.hub_id,companyOrg:s.company_org,status:s.status==='active'?'published':'archived',
+  access:s.visibility==='tier'?'entitled':'members',visibility:'public',previewAvailable:s.visibility==='tier'});
 /** Bound to a verified principal. Roles/company IDs are loaded from PostgreSQL
  * in the SAME snapshot as the access decisions, never from request headers.
  */
@@ -19,6 +23,43 @@ export class PostgresAccessRepository {
           const map=r=>({id:r.id,hubId:r.hub_id,companyOrg:r.company_org,status:r.status,access:r.access_mode,visibility:r.visibility,previewAvailable:r.preview_available??false});
           return [map(lesson),map(product)];
         },
+        // Community operations run their own SQL inside this same snapshot.
+        query:(sql,params)=>tx.query(sql,params),
+        listSpaces:async()=>(await tx.query(`SELECT s.id,s.hub_id,s.title,s.description,s.visibility,s.status,b.company_org
+          FROM community.spaces s JOIN tenancy.boundaries b ON b.hub_id=s.hub_id AND b.id=s.boundary_id
+          WHERE s.hub_id=$1 ORDER BY s.created_at,s.id`,[hubId])).rows.map(s=>({row:mapSpace(s),
+          space:{id:s.id,title:s.title,description:s.description,visibility:s.visibility,status:s.status}})),
+        getSpaceChain:async id=>{
+          const s=(await tx.query(`SELECT s.id,s.hub_id,s.visibility,s.status,b.company_org FROM community.spaces s
+            JOIN tenancy.boundaries b ON b.hub_id=s.hub_id AND b.id=s.boundary_id WHERE s.hub_id=$1 AND s.id=$2`,[hubId,id])).rows[0];
+          return s?[mapSpace(s)]:[];
+        },
+        getContributionSpace:async({postId,commentId})=>{
+          const row=postId?(await tx.query('SELECT space_id FROM community.posts WHERE hub_id=$1 AND id=$2',[hubId,postId])).rows[0]:
+            commentId?(await tx.query('SELECT space_id FROM community.comments WHERE hub_id=$1 AND id=$2',[hubId,commentId])).rows[0]:null;
+          return row?.space_id??null;
+        },
+        // A library item maps onto the lesson chain shape: the item's own
+        // requirement, then the linked product's for buyer-only items.
+        getLibraryChain:async id=>{
+          const item=(await tx.query('SELECT id,hub_id,status,visibility,required_product_id FROM library.items WHERE hub_id=$1 AND id=$2',[hubId,id])).rows[0];
+          if(!item)return [];
+          const access=({public:'open',members:'members',tier:'entitled',entitled:'open'})[item.visibility]??'invalid';
+          const chain=[{id:item.id,hubId:item.hub_id,companyOrg:null,status:item.status,access,visibility:'public',previewAvailable:true}];
+          if(item.required_product_id) {
+            const product=(await tx.query(`SELECT p.*,b.company_org FROM catalogue.products p JOIN tenancy.boundaries b ON b.hub_id=p.hub_id AND b.id=p.boundary_id
+              WHERE p.hub_id=$1 AND p.id=$2`,[hubId,item.required_product_id])).rows[0];
+            if(!product)return [];
+            chain.push({id:product.id,hubId:product.hub_id,companyOrg:product.company_org,status:product.status,access:product.access_mode,visibility:product.visibility,previewAvailable:true});
+          }
+          return chain;
+        },
+        getLibraryItem:async id=>{
+          const row=(await tx.query(`SELECT i.id,i.type,i.title,i.summary,i.body,i.visibility,i.topics,i.published_at,i.required_product_id,p.title AS product_title
+            FROM library.items i LEFT JOIN catalogue.products p ON p.hub_id=i.hub_id AND p.id=i.required_product_id WHERE i.hub_id=$1 AND i.id=$2`,[hubId,id])).rows[0];
+          return row?{id:row.id,type:row.type,title:row.title,summary:row.summary,body:row.body,visibility:row.visibility,topics:row.topics,
+            publishedAt:row.published_at,requiredProductId:row.required_product_id,productTitle:row.product_title}:null;
+        },
         // Read under the same RLS context (organisations, staff) as the decision.
         getLessonContent:async id=>{
           const row=(await tx.query(`SELECT l.id,l.title,l.summary,l.product_id,p.title AS product_title,c.body
@@ -26,6 +67,34 @@ export class PostgresAccessRepository {
             LEFT JOIN content.lesson_bodies c ON c.hub_id=l.hub_id AND c.lesson_id=l.id
             WHERE l.hub_id=$1 AND l.id=$2`,[hubId,id])).rows[0];
           return row?{id:row.id,title:row.title,summary:row.summary,productId:row.product_id,productTitle:row.product_title,body:row.body??''}:null;
+        },
+        getProgress:async lessonId=>{
+          const row=(await tx.query(`SELECT revision,furthest_position,resume_position,completed,completed_at FROM content.lesson_progress
+            WHERE hub_id=$1 AND user_id=$2 AND lesson_id=$3`,[hubId,this.userId,lessonId])).rows[0];
+          return row?{revision:Number(row.revision),furthestPosition:row.furthest_position,resumePosition:row.resume_position,completed:row.completed,completedAt:row.completed_at}:null;
+        },
+        lockProgress:async lessonId=>{
+          const row=(await tx.query(`SELECT revision,furthest_position,resume_position,completed FROM content.lesson_progress
+            WHERE hub_id=$1 AND user_id=$2 AND lesson_id=$3 FOR UPDATE`,[hubId,this.userId,lessonId])).rows[0];
+          return row?{revision:Number(row.revision),furthestPosition:row.furthest_position,resumePosition:row.resume_position,completed:row.completed}:null;
+        },
+        writeProgress:async(lessonId,state,isNew)=>{
+          if(isNew)await tx.query(`INSERT INTO content.lesson_progress(hub_id,user_id,lesson_id,boundary_id,revision,furthest_position,resume_position,completed)
+            SELECT hub_id,$2,id,boundary_id,$4,$5,$6,$7 FROM catalogue.lessons WHERE hub_id=$1 AND id=$3`,
+            [hubId,this.userId,lessonId,state.revision,state.furthestPosition,state.resumePosition,state.completed]);
+          else await tx.query(`UPDATE content.lesson_progress SET revision=$4,furthest_position=$5,resume_position=$6,completed=$7
+            WHERE hub_id=$1 AND user_id=$2 AND lesson_id=$3`,[hubId,this.userId,lessonId,state.revision,state.furthestPosition,state.resumePosition,state.completed]);
+        },
+        logOpen:async(lessonId,device)=>{
+          await tx.query(`INSERT INTO content.lesson_opens(hub_id,user_id,lesson_id,boundary_id,user_agent)
+            SELECT hub_id,$2,id,boundary_id,$4 FROM catalogue.lessons WHERE hub_id=$1 AND id=$3`,[hubId,this.userId,lessonId,device]);
+        },
+        findProgressRequest:async key=>{
+          const row=(await tx.query('SELECT request_hash,response FROM content.progress_requests WHERE hub_id=$1 AND user_id=$2 AND idempotency_key=$3',[hubId,this.userId,key])).rows[0];
+          return row?{requestHash:row.request_hash,response:row.response}:null;
+        },
+        storeProgressRequest:async(key,hash,response)=>{
+          await tx.query('INSERT INTO content.progress_requests(hub_id,user_id,idempotency_key,request_hash,response) VALUES($1,$2,$3,$4,$5::jsonb)',[hubId,this.userId,key,hash,JSON.stringify(response)]);
         },
         getVersions:async id=>{assertUser(id);const r=(await tx.query('SELECT u.access_version,h.access_epoch FROM identity.users u CROSS JOIN tenancy.hubs h WHERE u.id=$1 AND h.id=$2',[id,hubId])).rows[0];return r?{userVersion:r.access_version,hubEpoch:r.access_epoch}:null;},
         getAccessSummary:async id=>{

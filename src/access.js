@@ -1,3 +1,7 @@
+import { createHash } from 'node:crypto';
+import { mergeProgress } from './progress.js';
+const maxPosition = 10000000;
+const rejected = status => Object.assign(new Error('Progress rejected'), { status });
 /**
  * The repository must run withSnapshot in a tenant-scoped, consistent DB snapshot.
  * getTargetChain returns [target, ...ancestors], including every access parent.
@@ -26,7 +30,7 @@ export class AccessService {
    * snapshot, so content is never served on a decision from different data.
    * Locked results carry only the preview fields, never the body.
    */
-  async open({ hubId, userId = null, lessonId }) {
+  async open({ hubId, userId = null, lessonId, device = null }) {
     return this.repository.withSnapshot(hubId, async (snapshot) => {
       const chain = await snapshot.getTargetChain(lessonId);
       if (!chain?.length || chain.some(row => row.hubId !== hubId)) return notFound();
@@ -39,8 +43,102 @@ export class AccessService {
         const { body, ...preview } = lesson;
         return { ...decision, lesson: preview };
       }
-      return { decision: 'allowed', lesson };
+      const progress = userId ? await snapshot.getProgress(lessonId) : null;
+      // Record who received the content, in the same transaction as the decision.
+      if (userId) await snapshot.logOpen(lessonId, typeof device === 'string' ? device.slice(0, 300) : null);
+      return { decision: 'allowed', lesson: { ...lesson, progress } };
     });
+  }
+
+  /** Opens a library item through the same decision path as lessons. Items are
+   * always previewable: a locked result names how to unlock it, never the body.
+   */
+  async openLibraryItem({ hubId, userId = null, itemId }) {
+    return this.repository.withSnapshot(hubId, async (snapshot) => {
+      const chain = await snapshot.getLibraryChain(itemId);
+      if (!chain?.length || chain.some(row => row.hubId !== hubId)) return notFound();
+      const summary = userId ? await this.freshSummary(snapshot, hubId, userId) : null;
+      const decision = this.evaluate(chain, summary, 'content');
+      if (decision.decision === 'not_found') return decision;
+      const item = await snapshot.getLibraryItem(itemId);
+      if (!item) return notFound();
+      if (decision.decision === 'locked') {
+        const { body, ...preview } = item;
+        // A tier item is unlocked by a tier, not a purchase.
+        const reason = decision.reason === 'purchase' && item.visibility === 'tier' ? 'tier' : decision.reason;
+        return { decision: 'locked', reason, item: preview };
+      }
+      return { decision: 'allowed', item };
+    });
+  }
+
+  /** Spaces the caller can see: open ones, plus tier spaces as locked previews. */
+  async spaces({ hubId, userId }) {
+    return this.repository.withSnapshot(hubId, async (snapshot) => {
+      const summary = userId ? await this.freshSummary(snapshot, hubId, userId) : null;
+      const visible = [];
+      for (const { row, space } of await snapshot.listSpaces()) {
+        const decision = this.evaluate([row], summary, 'content');
+        if (decision.decision !== 'not_found') visible.push({ ...space, decision: decision.decision, reason: decision.reason });
+      }
+      return visible;
+    });
+  }
+
+  /** Runs a community read or write after the space decision, in the SAME
+   * transaction. Pass a spaceId, or a postId/commentId to resolve its space.
+   * The operation receives the decision and a query function for that snapshot.
+   */
+  async inSpace({ hubId, userId, spaceId = null, postId = null, commentId = null }, operation) {
+    return this.repository.withSnapshot(hubId, async (snapshot) => {
+      const resolved = spaceId ?? await snapshot.getContributionSpace({ postId, commentId });
+      const chain = resolved ? await snapshot.getSpaceChain(resolved) : [];
+      if (!chain.length || chain.some(row => row.hubId !== hubId)) return operation({ decision: notFound(), query: snapshot.query, spaceId: null });
+      const summary = userId ? await this.freshSummary(snapshot, hubId, userId) : null;
+      return operation({ decision: this.evaluate(chain, summary, 'content'), query: snapshot.query, spaceId: resolved, membership: summary?.membership ?? null });
+    });
+  }
+
+  /** Saves progress only for a lesson the learner can open now, decided in the
+   * same transaction. A retried request with the same idempotency key returns
+   * the stored result; the same key with a different payload is a conflict.
+   */
+  async recordProgress({ hubId, userId, lessonId, update, idempotencyKey }) {
+    if (!userId) throw rejected(401);
+    if (typeof idempotencyKey !== 'string' || !/^[A-Za-z0-9_-]{8,100}$/.test(idempotencyKey)) throw rejected(400);
+    const fields = { baseRevision: update?.baseRevision, furthestPosition: update?.furthestPosition,
+      resumePosition: update?.resumePosition, completed: update?.completed };
+    if ([fields.furthestPosition, fields.resumePosition].some(p => typeof p !== 'number' || p > maxPosition)) throw rejected(400);
+    const requestHash = createHash('sha256').update(JSON.stringify({ lessonId, ...fields })).digest('hex');
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this.repository.withSnapshot(hubId, async (snapshot) => {
+          const replay = await snapshot.findProgressRequest(idempotencyKey);
+          if (replay) {
+            if (replay.requestHash !== requestHash) throw rejected(409);
+            return replay.response;
+          }
+          const chain = await snapshot.getTargetChain(lessonId);
+          if (!chain?.length || chain.some(row => row.hubId !== hubId)) throw rejected(404);
+          const summary = await this.freshSummary(snapshot, hubId, userId);
+          if (this.evaluate(chain, summary, 'content').decision !== 'allowed') throw rejected(404);
+          const current = await snapshot.lockProgress(lessonId) ??
+            { revision: 0, furthestPosition: 0, resumePosition: 0, completed: false };
+          let merged;
+          try { merged = mergeProgress(current, fields); } catch { throw rejected(400); }
+          await snapshot.writeProgress(lessonId, merged.state, current.revision === 0);
+          // A stale resume change is reported, never silently treated as applied.
+          const response = { progress: merged.state, resumeConflict: merged.resumeConflict };
+          await snapshot.storeProgressRequest(idempotencyKey, requestHash, response);
+          return response;
+        });
+      } catch (error) {
+        // Concurrent saves of one lesson or key: retry; the replay check then answers.
+        if (['40001', '40P01', '23505'].includes(error.code) && attempt < 2) continue;
+        if (['40001', '40P01', '23505'].includes(error.code)) throw rejected(409);
+        throw error;
+      }
+    }
   }
 
   async freshSummary(snapshot, hubId, userId) {

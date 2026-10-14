@@ -52,7 +52,123 @@ escaped rendering. Two test fixes: cleanup now removes lesson bodies before
 users, and a notice-history check no longer assumes cross-transaction clock
 order. See [lesson content](lessons.md).
 
+## Fourth implemented slice: progress and My learning
+
+Learners can save lesson progress and see their courses. `PUT
+/v1/hubs/{hub}/lessons/{id}/progress` decides access and writes in one
+transaction, locks the progress row, applies the existing merge rules (forward-only
+completion and furthest position, reportable resume conflicts) and stores
+idempotency keys checked against the payload. The **My learning** page lists held
+and started products with completion and a Continue link; lesson pages gain
+**Mark as complete** for signed-in learners. Migration 018 adds the progress and
+idempotency tables under per-learner RLS with a forward-only trigger.
+
+Validation: `npm run verify` passed 194 checks; the full PostgreSQL 17 suite
+passed 125 checks (five new) on three consecutive runs. Coverage includes
+access-gated saves, replay and key-reuse handling, forward-only merging and
+stale resume conflicts, database refusal of backward or cross-learner writes,
+concurrent same-key saves applying once, learning-list inclusion and
+revocation, and HTTP identity/CSRF/key requirements. See
+[lesson content and progress](lessons.md).
+
+## Fifth implemented slice: lesson-open log and retention
+
+Every delivery of lesson content to a signed-in person is logged (who, lesson,
+time, device) in the same transaction as the access decision. Hub admins see it
+in the product editor and through a paged API; runtime cannot edit or delete it.
+`npm run records:expire` expires lesson opens after a deployment-set period (no
+default, since the legal period is unconfirmed) and idempotency records after
+seven days, through a separate `plinth_maintenance` login that can only call two
+retention functions. Migration 019 adds the log, the functions and policies.
+
+Validation: `npm run verify` passed 197 checks; the full PostgreSQL 17 suite
+passed 128 checks (three new) on three consecutive runs. Coverage includes what
+is and is not logged, device truncation, admin-only reads, refusal of updates,
+deletes and forged entries, maintenance-only retention with dry-run counts,
+period validation, and HTTP/editor visibility. See
+[lesson content and progress](lessons.md#lesson-open-log).
+
+## Sixth implemented slice: library (articles)
+
+Providers write, publish and archive library articles with `public`, `members`,
+`tier` or buyers-only visibility and topics. Items open through the same access
+decision as lessons, with locked previews explaining how to unlock them, and the
+public library pages by date and filters by topic. Migration 020 adds
+`library.items`. Podcasts and videos wait for media storage.
+
+Validation: `npm run verify` passed 201 checks; the full PostgreSQL 17 suite
+passed 132 checks (four new) on three consecutive runs. Coverage includes
+admin-only authoring, company-product and topic rejection (including at the
+database), every visibility outcome for members, outsiders, tier holders, buyers,
+suspended members and staff, unpublished linked products, archive behaviour,
+paging and topic filters, and HTTP/admin pages with escaping. See [library](library.md).
+
+## Seventh implemented slice: community
+
+Hub-wide, tier and company spaces with posts, comments, idempotent reactions,
+author deletion, reports and moderation (dismiss, hide, remove, remove and
+suspend). Every read and write runs after the space decision in the same
+transaction; company spaces are hidden by the database boundary. Moderation runs
+through one constrained function so content changes, suspension and report
+resolution commit together, and only ordinary members can be suspended.
+Migration 021 adds the `community` schema and the moderator role.
+
+Validation: `npm run verify` passed 206 checks; the full PostgreSQL 17 suite
+passed 137 checks (five new) on three consecutive runs. See [community](community.md).
+
+## Eighth implemented slice: enquiries
+
+Signed-in people, including prospects, send enquiries that open a conversation
+with the provider; hub owners/admins work them from an inbox with unread counts
+and statuses. Messages are idempotent by client id and closed enquiries are
+read-only. Migration 022 adds the shared `messaging` schema with definer-backed
+policies so nobody can join, claim or write into another person's conversation;
+staff can read enquiry conversations only.
+
+Validation: `npm run verify` passed 210 checks; the full PostgreSQL 17 suite
+passed 141 checks (four new) on three consecutive runs. A security gap in the
+first draft (self-joining a conversation as requester) was found in review and
+closed before testing; tests now attack it directly. See [enquiries](enquiries.md).
+
+## Ninth implemented slice: membership tiers (set-up)
+
+Providers define ranked tiers with fixed published prices and typed benefits
+(paid products, tier spaces, tier/buyer library items), checked against the real
+items by the database. Tier holders gain and lose access immediately through the
+existing decisions. A public Membership page compares published tiers;
+subscribing waits for the payment provider. Migration 023 adds `commerce.tiers`
+and typed, tier-linked benefits.
+
+Messaging fix in the same push: enquiry unread counts and history order now use
+a database sequence instead of timestamps (migration 024). An intermittent test
+failure was traced to the Docker VM's clock being stepped (database clock 0.3 s
+behind the host earlier, 0.38 s ahead later), which made a new message look
+already read. Real servers can step clocks too, so this was a genuine bug.
+
+Validation: `npm run verify` passed 213 checks; the full PostgreSQL 17 suite
+passed 144 checks (three new) on four consecutive runs. See [tiers](tiers.md).
+
+## Building with stand-ins
+
+Agreed on 14 October 2026: blocked areas are built against local stand-ins that
+need no credentials and refuse to run in production, swapped for real adapters
+later ([stand-ins](../stand-ins.md)). A local test sign-in that mimics Auth0 was
+approved for local use only. Order: payments, media, email, live updates, then a
+full local run.
+
+## Tenth implemented slice: once-off purchases
+
+Checkout, a TEST MODE payment page, signed webhooks, a double-entry ledger and
+purchase entitlements, all applied in one database transaction by a constrained
+payments login. Duplicate events, wrong amounts and orders priced below their
+plan never grant access. Migration 025.
+
+Validation: `npm run verify` passed 220 checks; the full PostgreSQL 17 suite
+passed 148 checks (four new) on three consecutive runs, plus three unit tests for
+the stand-in provider's signatures and sessions. See [payments](payments.md).
+
 ## Next
 
-1. Progress saving and a learner "my learning" view.
-2. Protected file assets (needs storage) and checkout (needs the payment provider decision).
+Payments continue with subscriptions (tiers), seats and refunds; then the media
+stand-in. Protected file assets and checkout remain blocked on storage and the
+payment provider decision.

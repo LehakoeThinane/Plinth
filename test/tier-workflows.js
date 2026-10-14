@@ -1,0 +1,87 @@
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import { TierRepository } from '../src/db/tier-repository.js';
+import { CatalogueRepository } from '../src/db/catalogue-repository.js';
+import { LibraryRepository } from '../src/db/library-repository.js';
+import { CommunityRepository } from '../src/db/community-repository.js';
+import { PostgresAccessRepository } from '../src/db/access-repository.js';
+import { AccessService } from '../src/access.js';
+import { MemoryAccessCache } from '../src/cache/memory.js';
+export async function tierChecks({admin,db,hubId,userA,companyOrg,check,base,fetch,slug,testUsers}) {
+  const owner=new TierRepository(db,userA),catalogue=new CatalogueRepository(db,userA),library=new LibraryRepository(db,userA),community=new CommunityRepository(db,userA);
+  const access=user=>new AccessService(new PostgresAccessRepository(db,user),new MemoryAccessCache());
+  const holder=randomUUID(),member=randomUUID();testUsers.push(holder,member);
+  await admin.query('INSERT INTO identity.users(id) VALUES($1),($2)',[holder,member]);
+  await admin.query("INSERT INTO tenancy.memberships(hub_id,user_id,role,status) VALUES($1,$2,'member','active'),($1,$3,'member','active')",[hubId,holder,member]);
+  const tier={name:'Gold <i>circle</i>',description:'Everything',rank:1,amountCents:20000,interval:'month'};
+  let gold,silver;
+  await check('tiers are admin-only, uniquely ranked and keep published prices',async()=>{
+    await assert.rejects(new TierRepository(db,member).create(hubId,tier),{status:404});
+    for(const input of [{...tier,name:''},{...tier,rank:0},{...tier,amountCents:50},{...tier,interval:'week'}])await assert.rejects(owner.create(hubId,input),{status:400});
+    gold=(await owner.create(hubId,tier)).id;
+    await assert.rejects(owner.create(hubId,{...tier,name:'Clash'}),{status:409});
+    silver=(await owner.create(hubId,{...tier,name:'Silver',rank:2,amountCents:9900})).id;
+    assert.equal((await owner.update(hubId,gold,{amountCents:25000})).amount_cents,25000);
+    await owner.setStatus(hubId,gold,'published');
+    await assert.rejects(owner.update(hubId,gold,{amountCents:30000}),{status:409});
+    await assert.rejects(owner.update(hubId,gold,{interval:'year'}),{status:409});
+    assert.equal((await owner.update(hubId,gold,{name:'Gold'})).name,'Gold');
+    await assert.rejects(owner.setStatus(hubId,gold,'published'),{status:409});
+    const old=(await owner.create(hubId,{...tier,name:'Retired',rank:3})).id;await owner.setStatus(hubId,old,'archived');
+    await assert.rejects(owner.setStatus(hubId,old,'published'),{status:409});
+    assert.ok((await owner.create(hubId,{...tier,name:'Reuses rank 3',rank:3})).id);
+    await assert.rejects(db.withSnapshot({hubId,userId:member,orgIds:[],isStaff:true},tx=>tx.query("INSERT INTO commerce.tiers(hub_id,id,name,rank,amount_cents,billing_interval) VALUES($1,$2,'Forged',50,100,'month')",[hubId,randomUUID()])),{code:'42501'});
+  });
+  const ids={};
+  await check('benefits must name eligible items and immediately drive access for tier holders',async()=>{
+    const paid=await catalogue.create(hubId,{type:'course',title:'Tier course',visibility:'public',accessMode:'entitled'});
+    const module=await catalogue.addModule(hubId,paid.id,{title:'M'});ids.lesson=(await catalogue.addLesson(hubId,paid.id,{moduleId:module.id,title:'L'})).id;
+    await catalogue.addPlan(hubId,paid.id,{model:'once_off',amountCents:10000});await catalogue.publish(hubId,paid.id);ids.product=paid.id;
+    ids.draftProduct=(await catalogue.create(hubId,{type:'course',title:'Unreleased',visibility:'public',accessMode:'entitled'})).id;
+    ids.company=(await catalogue.create(hubId,{type:'course',title:'Company only',visibility:'company',accessMode:'entitled',companyOrg})).id;
+    ids.space=(await community.createSpace(hubId,{title:'Gold lounge',visibility:'tier'})).id;
+    ids.hubSpace=(await community.createSpace(hubId,{title:'Open lounge',visibility:'hub'})).id;
+    ids.item=(await library.create(hubId,{title:'Gold guide',body:'Secret',visibility:'tier'})).id;await library.setStatus(hubId,ids.item,'published');
+    ids.publicItem=(await library.create(hubId,{title:'Open guide',visibility:'public'})).id;
+    for(const [targetType,targetId] of [['product',ids.product],['product',ids.draftProduct],['space',ids.space],['library',ids.item]])
+      await owner.addBenefit(hubId,gold,{targetType,targetId});
+    await owner.addBenefit(hubId,gold,{targetType:'library',targetId:ids.item});
+    for(const [targetType,targetId] of [['product',ids.company],['space',ids.hubSpace],['library',ids.publicItem],['product',randomUUID()],['space',ids.product]])
+      await assert.rejects(owner.addBenefit(hubId,gold,{targetType,targetId}),{status:409});
+    await assert.rejects(owner.addBenefit(hubId,gold,{targetType:'video',targetId:ids.item}),{status:400});
+    await assert.rejects(new TierRepository(db,member).addBenefit(hubId,gold,{targetType:'library',targetId:ids.item}),{status:404});
+    await assert.rejects(admin.query("INSERT INTO access.tier_benefits(hub_id,tier_id,target_id,target_type) VALUES($1,$2,$3,'library')",[hubId,randomUUID(),ids.item]),{code:'23503'});
+    assert.equal((await owner.get(hubId,gold)).tier.benefits.length,4);
+    await admin.query("INSERT INTO access.entitlements(hub_id,id,user_id,target_id,kind) VALUES($1,$2,$3,$4,'tier')",[hubId,randomUUID(),holder,gold]);
+    assert.equal((await access(holder).openLibraryItem({hubId,userId:holder,itemId:ids.item})).decision,'allowed');
+    assert.equal((await access(holder).open({hubId,userId:holder,lessonId:ids.lesson})).decision,'allowed');
+    assert.ok((await access(holder).spaces({hubId,userId:holder})).some(s=>s.id===ids.space&&s.decision==='allowed'));
+    assert.equal((await access(member).openLibraryItem({hubId,userId:member,itemId:ids.item})).reason,'tier');
+    await owner.removeBenefit(hubId,gold,ids.item);
+    assert.equal((await access(holder).openLibraryItem({hubId,userId:holder,itemId:ids.item})).reason,'tier');
+    await assert.rejects(owner.removeBenefit(hubId,gold,ids.item),{status:404});
+  });
+  await check('the public comparison lists published tiers by rank with live benefits only',async()=>{
+    await owner.setStatus(hubId,silver,'published');
+    const {tiers}=await new TierRepository(db).compare(hubId);
+    const ours=tiers.filter(t=>[gold,silver].includes(t.id));
+    assert.deepEqual(ours.map(t=>t.name),['Gold','Silver']);
+    assert.deepEqual(ours[0].benefits.map(b=>b.title).sort(),['Gold lounge','Tier course']);
+    assert.ok(!tiers.some(t=>t.name==='Reuses rank 3'));
+    const api=await fetch(base+'/v1/hubs/'+hubId+'/tiers');assert.equal(api.status,200);assert.ok((await api.json()).tiers.some(t=>t.id===gold));
+    await owner.update(hubId,silver,{description:'Starter <b>tier</b>'});
+    const page=await (await fetch(base+'/h/'+slug+'/membership')).text();
+    assert.ok(page.includes('R250.00 per month'));assert.ok(page.includes('Starter &lt;b&gt;tier&lt;/b&gt;'));assert.ok(!page.includes('<b>tier'));assert.ok(page.includes('Subscriptions open soon'));
+    const route=base+'/v1/hubs/'+hubId+'/catalogue/tiers';
+    assert.equal((await fetch(route,{method:'POST',headers:{authorization:'Bearer learner-b'},body:JSON.stringify({...tier,rank:40})})).status,404);
+    const created=await fetch(route,{method:'POST',headers:{authorization:'Bearer learner-a'},body:JSON.stringify({...tier,name:'API tier',rank:40})});assert.equal(created.status,201);
+    const apiTier=(await created.json()).id;
+    assert.equal((await fetch(route+'/'+apiTier+'/benefits',{method:'POST',headers:{authorization:'Bearer learner-a'},body:JSON.stringify({targetType:'space',targetId:ids.space})})).status,201);
+    assert.equal((await fetch(route+'/'+apiTier+'/publish',{method:'POST',headers:{authorization:'Bearer learner-a'}})).status,200);
+    const host='learn-new.example',exchange=await fetch(base+'/v1/hubs/'+hubId+'/session',{method:'POST',headers:{authorization:'Bearer learner-a',host,origin:'https://'+host}});
+    const cookie=exchange.headers.get('set-cookie').split(';')[0];
+    assert.ok((await (await fetch(base+'/h/'+slug+'/admin/tiers',{headers:{host,cookie}})).text()).includes('id="create-tier"'));
+    const editor=await (await fetch(base+'/h/'+slug+'/admin/tiers/'+gold,{headers:{host,cookie}})).text();
+    assert.ok(editor.includes('id="add-benefit"'));assert.ok(editor.includes('The price is fixed once published'));assert.ok(!editor.includes('Company only'));
+  });
+}

@@ -9,7 +9,7 @@ Draft for legal/accounting review. No statutory period has been assumed.
 | Orders, ledger and invoices | Accounting and statutory evidence | Applicable financial event | To confirm per law | Retain required fields; restrict identity mapping | Finance |
 | Posts, comments and own messages | Community, conversation and moderation | Deletion request / retention expiry | To confirm | Delete or redact author/content and attachments as appropriate | Privacy/moderation |
 | Seat grants and assignments | Enterprise audit | Grant/assignment ends | To confirm | Minimise identity, retain justified reference | Enterprise operations |
-| Access and security logs | Investigation | Logged event | To confirm, bounded | Expire logs and device identifiers | Security |
+| Access and security logs | Investigation | Logged event | To confirm, bounded; set per deployment via `ACCESS_LOG_RETENTION_DAYS` (no default) | Expire logs and device identifiers (`npm run records:expire`) | Security |
 | Stamped document copies | Licensed delivery | Access ends / deletion request | To confirm | Delete copies and cached variants; minimise metadata | Content operations |
 | Backups | Recovery | Backup creation | To confirm | Scheduled expiry; replay deletion tombstones on restore | Operations |
 

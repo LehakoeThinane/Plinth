@@ -4,7 +4,7 @@ const cookieName='__Host-plinth-login';
 const digest=value=>createHash('sha256').update(value).digest('hex');
 const cookieAttributes='; Path=/; Secure; HttpOnly; SameSite=Lax';
 const reject=()=>Object.assign(new Error('Sign-in rejected'),{status:401});
-const views=new Set(['join','member','admin','create-hub','organisations','account']);
+const views=new Set(['join','member','admin','create-hub','organisations','account','enquiries']);
 export const clearLoginCookie=cookieName+'='+cookieAttributes+'; Max-Age=0';
 // Sign-in-method changes need a session established within this window.
 export const recentSignInMs=10*60*1000;
@@ -61,7 +61,7 @@ export class HostedSignIn {
     const attempt=await this.#store.consumeLogin(digest(state),origin);
     if(!attempt||await this.#sessions.trustedOrigin(req,attempt.hubId)!==attempt.origin)throw reject();
     const p=attempt.payload;
-    if(p.redirectUri!==origin+'/auth/callback'||!/^\/h\/[a-z0-9-]+\/(join|member|admin|create-hub|organisations|account)$/.test(p.returnPath))throw reject();
+    if(p.redirectUri!==origin+'/auth/callback'||!/^\/h\/[a-z0-9-]+\/(join|member|admin|create-hub|organisations|account|enquiries)$/.test(p.returnPath))throw reject();
     // A link callback must return to the exact session that started it.
     const linking=p.link?await this.#sessions.principal(req):null;
     if(p.link&&(!this.#linkIdentity||!linking||linking.sessionHash!==p.link.sessionHash||
