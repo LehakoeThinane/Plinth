@@ -54,6 +54,10 @@ createServer({key:await readFile(key),cert:await readFile(cert)},(req,res)=>{
   if(url.pathname.startsWith('/test-auth/'))return identity.handle(req,res,url).catch(error=>{console.error(error);res.writeHead(500);res.end();});
   if(url.pathname==='/'){res.writeHead(200,{'content-type':'text/html; charset=utf-8'});return res.end(landing);}
   return handle(req,res);
+}).on('error',error=>{
+  if(error.code!=='EADDRINUSE')throw error;
+  console.error('Port '+port+' is already in use, probably by another npm run local. Stop it (Ctrl+C in its window) or set PORT to another number.');
+  process.exit(2);
 }).listen(port,'127.0.0.1',()=>{
   console.log('Plinth local run: '+origin+'/  ('+(seeded.created?'demo data created':'demo data already present')+')');
   console.log('Your browser will warn about the local certificate once; continue to localhost.');
