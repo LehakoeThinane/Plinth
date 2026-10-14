@@ -160,6 +160,19 @@ export class CatalogueRepository {
       return {id:planId,status:'retired'};
     });
   }
+  /** Who opened this product's lessons, newest first, keyset-paged by entry id. */
+  async opens(hubId,productId,{before=null,limit=50}={}) {
+    const size=Number(limit),cursor=before===null?null:Number(before);
+    if(!Number.isInteger(size)||size<1||size>200||(cursor!==null&&(!Number.isSafeInteger(cursor)||cursor<1)))throw fail(400);
+    return this.#run(hubId,true,async tx=>{
+      const product=await this.#product(tx,productId);
+      const rows=(await tx.query(`SELECT o.id,o.user_id,o.lesson_id,l.title AS lesson_title,o.user_agent,o.opened_at
+        FROM content.lesson_opens o JOIN catalogue.lessons l ON l.hub_id=o.hub_id AND l.id=o.lesson_id
+        WHERE l.product_id=$1 AND ($2::bigint IS NULL OR o.id<$2) ORDER BY o.id DESC LIMIT $3`,[product.id,cursor,size+1])).rows;
+      const page=rows.slice(0,size).map(r=>({...r,id:Number(r.id)}));
+      return {opens:page,next:rows.length>size?page.at(-1).id:null};
+    });
+  }
   /** Publishes the product (checked by the database) and any draft lessons. */
   async publish(hubId,productId) {
     return this.#run(hubId,true,async tx=>{

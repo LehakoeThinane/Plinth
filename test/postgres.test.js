@@ -50,6 +50,9 @@ const auth=embedded?.auth??new pg.Pool({connectionString:process.env.TEST_AUTH_D
 const domainUrl=embeddedMode?null:new URL(process.env.TEST_DOMAIN_DATABASE_URL??process.env.DATABASE_URL);
 if(domainUrl)domainUrl.username='plinth_domain_verifier';
 const domains=embedded?.domains??new pg.Pool({connectionString:domainUrl.href,max:2,connectionTimeoutMillis:10000});
+const maintenanceUrl=embeddedMode?null:new URL(process.env.TEST_MAINTENANCE_DATABASE_URL??process.env.DATABASE_URL);
+if(maintenanceUrl&&!process.env.TEST_MAINTENANCE_DATABASE_URL)maintenanceUrl.username='plinth_maintenance';
+const maintenance=embedded?.maintenance??new pg.Pool({connectionString:maintenanceUrl.href,max:1,connectionTimeoutMillis:10000});
 const domainRecords=new Map();
 const authRepository=new AuthRepository(auth);
 const db=new TenantDatabase(app);
@@ -389,7 +392,7 @@ try {
   await logoChecks({admin,app,db,hubId:createdHub,otherHub:a,userA,check,embeddedMode,base,fetch,slug:createdSlug,store:brandingStore});
   await domainChecks({admin,app,domains,db,hubId:createdHub,otherHub:a,userA,userB,check,embeddedMode,base,fetch,slug:createdSlug,records:domainRecords});
   await catalogueChecks({admin,app,db,hubId:createdHub,otherHub:a,userA,userB,companyOrg:orgA,check,base,fetch,slug:createdSlug,embeddedMode});
-  await lessonChecks({admin,db,hubId:createdHub,userA,userB,companyOrg:orgA,check,base,fetch,slug:createdSlug,testUsers,embeddedMode});
+  await lessonChecks({admin,db,hubId:createdHub,userA,userB,companyOrg:orgA,check,base,fetch,slug:createdSlug,testUsers,embeddedMode,maintenance,app});
   const browserHeaders={host:'learn-a.example',origin:'https://learn-a.example'};
   await check('browser session exchange requires a verified bearer and exact trusted origin',async()=>{
     const sessionUrl=base+'/v1/hubs/'+a+'/session';
@@ -516,6 +519,7 @@ try {
   await admin.query('DELETE FROM content.lesson_bodies WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM content.lesson_progress WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM content.progress_requests WHERE hub_id=ANY($1::uuid[])',[testHubs]);
+  await admin.query('DELETE FROM content.lesson_opens WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM tenancy.domain_claims WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM identity.auth_sessions WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM identity.org_domain_claims WHERE org_id=ANY($1::uuid[])',[testOrgs]);
@@ -544,5 +548,5 @@ try {
   await admin.query('DELETE FROM tenancy.hub_profiles WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM tenancy.hubs WHERE id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM identity.organisations WHERE id=ANY($1::uuid[])',[testOrgs]);
-  } finally { await app.end();await auth.end();await domains.end();await admin.end();if(embedded)await embedded.close();const path=relative(storageRoot,storageDirectory);assert.ok(path&&!path.startsWith('..')&&!isAbsolute(path));await rm(storageDirectory,{recursive:true,force:true}); }
+  } finally { await app.end();await auth.end();await domains.end();await maintenance.end();await admin.end();if(embedded)await embedded.close();const path=relative(storageRoot,storageDirectory);assert.ok(path&&!path.startsWith('..')&&!isAbsolute(path));await rm(storageDirectory,{recursive:true,force:true}); }
 }

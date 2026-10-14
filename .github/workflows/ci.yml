@@ -28,6 +28,7 @@ jobs:
       TEST_ADMIN_DATABASE_URL: postgresql://plinth_admin:local-development-only@localhost:5432/plinth
       TEST_AUTH_DATABASE_URL: postgresql://plinth_auth:local-development-only@localhost:5432/plinth
       TEST_DOMAIN_DATABASE_URL: postgresql://plinth_domain_verifier:local-development-only@localhost:5432/plinth
+      TEST_MAINTENANCE_DATABASE_URL: postgresql://plinth_maintenance:local-development-only@localhost:5432/plinth
       PGPASSWORD: local-development-only
     steps:
       - uses: actions/checkout@v4
@@ -55,6 +56,7 @@ jobs:
       - run: psql -h localhost -U plinth_admin -d plinth -v ON_ERROR_STOP=1 -f db/migrations/016-catalogue.sql
       - run: psql -h localhost -U plinth_admin -d plinth -v ON_ERROR_STOP=1 -f db/migrations/017-lesson-content.sql
       - run: psql -h localhost -U plinth_admin -d plinth -v ON_ERROR_STOP=1 -f db/migrations/018-progress.sql
+      - run: psql -h localhost -U plinth_admin -d plinth -v ON_ERROR_STOP=1 -f db/migrations/019-access-log.sql
       - run: npm test
       - run: npm run test:tenant
       - run: npm run test:http

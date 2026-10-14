@@ -30,7 +30,7 @@ export class AccessService {
    * snapshot, so content is never served on a decision from different data.
    * Locked results carry only the preview fields, never the body.
    */
-  async open({ hubId, userId = null, lessonId }) {
+  async open({ hubId, userId = null, lessonId, device = null }) {
     return this.repository.withSnapshot(hubId, async (snapshot) => {
       const chain = await snapshot.getTargetChain(lessonId);
       if (!chain?.length || chain.some(row => row.hubId !== hubId)) return notFound();
@@ -44,6 +44,8 @@ export class AccessService {
         return { ...decision, lesson: preview };
       }
       const progress = userId ? await snapshot.getProgress(lessonId) : null;
+      // Record who received the content, in the same transaction as the decision.
+      if (userId) await snapshot.logOpen(lessonId, typeof device === 'string' ? device.slice(0, 300) : null);
       return { decision: 'allowed', lesson: { ...lesson, progress } };
     });
   }

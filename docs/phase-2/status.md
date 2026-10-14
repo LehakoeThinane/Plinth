@@ -71,7 +71,24 @@ concurrent same-key saves applying once, learning-list inclusion and
 revocation, and HTTP identity/CSRF/key requirements. See
 [lesson content and progress](lessons.md).
 
+## Fifth implemented slice: lesson-open log and retention
+
+Every delivery of lesson content to a signed-in person is logged (who, lesson,
+time, device) in the same transaction as the access decision. Hub admins see it
+in the product editor and through a paged API; runtime cannot edit or delete it.
+`npm run records:expire` expires lesson opens after a deployment-set period (no
+default, since the legal period is unconfirmed) and idempotency records after
+seven days, through a separate `plinth_maintenance` login that can only call two
+retention functions. Migration 019 adds the log, the functions and policies.
+
+Validation: `npm run verify` passed 197 checks; the full PostgreSQL 17 suite
+passed 128 checks (three new) on three consecutive runs. Coverage includes what
+is and is not logged, device truncation, admin-only reads, refusal of updates,
+deletes and forged entries, maintenance-only retention with dry-run counts,
+period validation, and HTTP/editor visibility. See
+[lesson content and progress](lessons.md#lesson-open-log).
+
 ## Next
 
-1. Protected file assets (needs storage) and checkout (needs the payment provider decision).
-2. Locally buildable: an access log of lesson opens and idempotency-record pruning.
+Protected file assets (needs storage) and checkout (needs the payment provider
+decision). Locally buildable work for the first-sale milestone is otherwise complete.

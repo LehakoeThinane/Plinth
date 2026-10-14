@@ -44,6 +44,10 @@ export class PostgresAccessRepository {
           else await tx.query(`UPDATE content.lesson_progress SET revision=$4,furthest_position=$5,resume_position=$6,completed=$7
             WHERE hub_id=$1 AND user_id=$2 AND lesson_id=$3`,[hubId,this.userId,lessonId,state.revision,state.furthestPosition,state.resumePosition,state.completed]);
         },
+        logOpen:async(lessonId,device)=>{
+          await tx.query(`INSERT INTO content.lesson_opens(hub_id,user_id,lesson_id,boundary_id,user_agent)
+            SELECT hub_id,$2,id,boundary_id,$4 FROM catalogue.lessons WHERE hub_id=$1 AND id=$3`,[hubId,this.userId,lessonId,device]);
+        },
         findProgressRequest:async key=>{
           const row=(await tx.query('SELECT request_hash,response FROM content.progress_requests WHERE hub_id=$1 AND user_id=$2 AND idempotency_key=$3',[hubId,this.userId,key])).rows[0];
           return row?{requestHash:row.request_hash,response:row.response}:null;

@@ -71,7 +71,7 @@ export function createApi({authenticate,accessForPrincipal,consentForPrincipal,n
         const membership=await hubForPrincipal(principal).membership(hub.id).catch(error=>{if(error.status===404)return null;throw error;});
         if(!['owner','admin'].includes(membership?.role))return send(404,{error:'not_found'});
         const products=catalogueForPrincipal(principal);
-        const catalogue=adminProducts[2]?{detail:await products.get(hub.id,adminProducts[2])}:{products:await products.list(hub.id)};
+        const catalogue=adminProducts[2]?{detail:await products.get(hub.id,adminProducts[2]),opens:(await products.opens(hub.id,adminProducts[2],{limit:20})).opens}:{products:await products.list(hub.id)};
         const html=renderApplicationShell({hub,view:adminProducts[2]?'product':'products',membership,catalogue,consents:[],csrfToken:principal.csrfToken});
         res.writeHead(200,htmlHeaders);return res.end(html);
       }
@@ -131,7 +131,7 @@ export function createApi({authenticate,accessForPrincipal,consentForPrincipal,n
           if(!principal||!uuid.test(principal.userId??''))return send(401,{error:'unauthenticated'});
         } else principal=await browserSessions?.principal(req)??null;
         if(principal?.sessionHash && principal.hubId!==hubId)return send(404,{error:'not_found'});
-        const result=await accessForPrincipal(principal??{userId:null}).open({hubId,userId:principal?.userId??null,lessonId});
+        const result=await accessForPrincipal(principal??{userId:null}).open({hubId,userId:principal?.userId??null,lessonId,device:req.headers['user-agent']??null});
         if(result.decision==='not_found')return send(404,{error:'not_found'});
         if(lessonApi)return send(200,result);
         // Signed-in learners get the CSRF token needed to save progress from the page.
@@ -160,10 +160,10 @@ export function createApi({authenticate,accessForPrincipal,consentForPrincipal,n
       const progressRoute=progress && uuid.test(progress[1]) && uuid.test(progress[2]) && req.method==='PUT';
       const learning=path.match(/^\/v1\/hubs\/([0-9a-f-]{36})\/learning$/);
       const learningRoute=learningForPrincipal && learning && uuid.test(learning[1]) && req.method==='GET';
-      const catalogue=path.match(/^\/v1\/hubs\/([0-9a-f-]{36})\/catalogue\/products(?:\/([0-9a-f-]{36})(?:\/(modules|lessons|plans|publish)(?:\/([0-9a-f-]{36})(?:\/(content))?)?)?)?$/);
+      const catalogue=path.match(/^\/v1\/hubs\/([0-9a-f-]{36})\/catalogue\/products(?:\/([0-9a-f-]{36})(?:\/(modules|lessons|plans|publish|opens)(?:\/([0-9a-f-]{36})(?:\/(content))?)?)?)?$/);
       const catalogueRoute=catalogueForPrincipal && catalogue && [1,2,4].every(i=>catalogue[i]===undefined||uuid.test(catalogue[i])) &&
         (!catalogue[2]?['GET','POST'].includes(req.method):!catalogue[3]?['GET','PATCH'].includes(req.method):
-          catalogue[5]?catalogue[3]==='lessons'&&req.method==='PUT':
+          catalogue[3]==='opens'?req.method==='GET'&&!catalogue[4]:catalogue[5]?catalogue[3]==='lessons'&&req.method==='PUT':
           catalogue[4]?catalogue[3]==='plans'&&req.method==='DELETE':req.method==='POST');
       const orgDomain=path.match(/^\/v1\/hubs\/([0-9a-f-]{36})\/organisations\/([0-9a-f-]{36})\/domains(?:\/(verify))?$/);
       const orgDomainRoute=orgDomainsForPrincipal && orgDomain && uuid.test(orgDomain[1]) && uuid.test(orgDomain[2]) &&
@@ -203,6 +203,7 @@ export function createApi({authenticate,accessForPrincipal,consentForPrincipal,n
         if(!productId)return req.method==='GET'?send(200,{products:await products.list(hubId)}):send(201,await products.create(hubId,await readObject(req)));
         if(!part)return send(200,req.method==='GET'?await products.get(hubId,productId):await products.update(hubId,productId,await readObject(req)));
         if(part==='publish')return send(200,await products.publish(hubId,productId));
+        if(part==='opens')return send(200,await products.opens(hubId,productId,{before:requestUrl.searchParams.get('before'),limit:requestUrl.searchParams.get('limit')??50}));
         if(content)return send(200,await products.setLessonContent(hubId,productId,planId,await readObject(req,262144)));
         if(planId)return send(200,await products.retirePlan(hubId,productId,planId));
         const input=await readObject(req);

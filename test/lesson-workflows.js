@@ -6,9 +6,10 @@ import { AccessService } from '../src/access.js';
 import { MemoryAccessCache } from '../src/cache/memory.js';
 import { auditPolicies } from '../src/db/policy-audit.js';
 import { LearningRepository } from '../src/db/learning-repository.js';
+import { MaintenanceRepository } from '../src/db/maintenance-repository.js';
 import { TenantDatabase } from '../src/db/tenant.js';
 import pg from 'pg';
-export async function lessonChecks({admin,db,hubId,userA,userB,companyOrg,check,base,fetch,slug,testUsers,embeddedMode}) {
+export async function lessonChecks({admin,db,hubId,userA,userB,companyOrg,check,base,fetch,slug,testUsers,embeddedMode,maintenance,app}) {
   const owner=new CatalogueRepository(db,userA),cache=new MemoryAccessCache();
   const opener=user=>new AccessService(new PostgresAccessRepository(db,user),cache);
   const open=(user,lessonId)=>opener(user).open({hubId,userId:user,lessonId});
@@ -165,5 +166,56 @@ export async function lessonChecks({admin,db,hubId,userA,userB,companyOrg,check,
     assert.ok(lesson.includes('id="complete-lesson"'));assert.ok(lesson.includes('data-lesson-id="'+paid.lessons[0]+'"'));assert.ok(lesson.includes('plinth-shell.js'));
     const done=await (await fetch(base+'/h/'+slug+'/lessons/'+paid.lessons[1],{headers:{host,cookie}})).text();assert.ok(done.includes('<p>Completed.</p>'));
     const anonymous=await (await fetch(base+'/h/'+slug+'/lessons/'+free.lessons[0])).text();assert.ok(!anonymous.includes('plinth-shell.js'));assert.ok(!anonymous.includes('data-csrf'));
+  });
+  const opensOf=async(user,lessonId)=>(await admin.query('SELECT id,user_agent FROM content.lesson_opens WHERE user_id=$1 AND lesson_id=$2 ORDER BY id',[user,lessonId])).rows;
+  await check('opening lesson content is logged; only admins read the log and nobody can rewrite it',async()=>{
+    const core=paid.lessons[1],before=(await opensOf(buyer,core)).length;
+    await opener(buyer).open({hubId,userId:buyer,lessonId:core,device:'TestAgent/1.0 '+'x'.repeat(400)});
+    const logged=await opensOf(buyer,core);assert.equal(logged.length,before+1);assert.equal(logged.at(-1).user_agent.length,300);
+    assert.ok(logged.at(-1).user_agent.startsWith('TestAgent/1.0'));
+    const teaser=(await opensOf(member,paid.lessons[0])).length;await open(member,paid.lessons[0]);assert.equal((await opensOf(member,paid.lessons[0])).length,teaser);
+    await open(null,free.lessons[0]);assert.equal((await admin.query('SELECT count(*)::int AS n FROM content.lesson_opens WHERE lesson_id=$1 AND user_id IS NULL',[free.lessons[0]])).rows[0].n,0);
+    for(const user of [member,buyer])assert.equal((await db.withSnapshot({hubId,userId:user,orgIds:[],isStaff:false},tx=>tx.query('SELECT * FROM content.lesson_opens'))).rows.length,0);
+    const listed=await owner.opens(hubId,paid.id);assert.ok(listed.opens.some(o=>o.user_id===buyer&&o.lesson_id===core));
+    await assert.rejects(new CatalogueRepository(db,member).opens(hubId,paid.id),{status:404});
+    const as=user=>sql=>db.withSnapshot({hubId,userId:user,orgIds:[],isStaff:false},tx=>tx.query(sql,[hubId,buyer,core]));
+    await assert.rejects(as(userA)("UPDATE content.lesson_opens SET user_agent='forged' WHERE hub_id=$1 AND user_id=$2 AND lesson_id=$3"),{code:'42501'});
+    await assert.rejects(as(userA)('DELETE FROM content.lesson_opens WHERE hub_id=$1 AND user_id=$2 AND lesson_id=$3'),{code:'42501'});
+    await assert.rejects(as(member)('INSERT INTO content.lesson_opens(hub_id,user_id,lesson_id,boundary_id) SELECT $1,$2,id,boundary_id FROM catalogue.lessons WHERE id=$3'),{code:'42501'});
+    const c=await admin.connect();
+    try{await c.query('BEGIN');await c.query('DROP POLICY company_scope ON content.lesson_opens');await assert.rejects(auditPolicies(c),/Unsafe tenant policies/);}
+    finally{await c.query('ROLLBACK');c.release();}
+  });
+  await check('retention runs only through the maintenance login, counts first and spares recent records',async()=>{
+    const records=new MaintenanceRepository(maintenance);
+    await assert.rejects(app.query('SELECT app.expire_lesson_opens(30,true)'),{code:'42501'});
+    for(const table of ['content.lesson_opens','content.progress_requests'])await assert.rejects(maintenance.query('SELECT * FROM '+table),{code:'42501'});
+    if(!embeddedMode)await assert.rejects(maintenance.query('SET ROLE plinth_retention_executor'),{code:'42501'});
+    const owner=(await admin.query("SELECT pg_get_userbyid(proowner) AS owner FROM pg_proc WHERE oid='app.expire_lesson_opens(integer,boolean)'::regprocedure")).rows[0].owner;
+    assert.equal(owner,'plinth_retention_executor');
+    const [oldOpen,recentOpen]=(await opensOf(buyer,paid.lessons[1])).slice(-2);
+    await admin.query("UPDATE content.lesson_opens SET opened_at=now()-interval '40 days' WHERE hub_id=$1 AND id=$2",[hubId,oldOpen.id]);
+    assert.ok(await records.expireLessonOpens(30)>=1);
+    assert.equal((await admin.query('SELECT count(*)::int AS n FROM content.lesson_opens WHERE hub_id=$1 AND id=$2',[hubId,oldOpen.id])).rows[0].n,1);
+    await records.expireLessonOpens(30,true);
+    const remaining=(await admin.query('SELECT id FROM content.lesson_opens WHERE hub_id=$1 AND id=ANY($2::bigint[])',[hubId,[oldOpen.id,recentOpen.id]])).rows.map(r=>String(r.id));
+    assert.deepEqual(remaining,[String(recentOpen.id)]);
+    const key=(await admin.query('SELECT idempotency_key FROM content.progress_requests WHERE hub_id=$1 AND user_id=$2 LIMIT 1',[hubId,buyer])).rows[0].idempotency_key;
+    await admin.query("UPDATE content.progress_requests SET created_at=now()-interval '10 days' WHERE hub_id=$1 AND user_id=$2 AND idempotency_key=$3",[hubId,buyer,key]);
+    await records.expireProgressRequests(168,true);
+    assert.equal((await admin.query('SELECT count(*)::int AS n FROM content.progress_requests WHERE hub_id=$1 AND idempotency_key=$2',[hubId,key])).rows[0].n,0);
+    assert.ok((await admin.query('SELECT count(*)::int AS n FROM content.progress_requests WHERE hub_id=$1',[hubId])).rows[0].n>0);
+    for(const call of [()=>records.expireLessonOpens(0),()=>records.expireLessonOpens(4000),()=>records.expireProgressRequests(1)])await assert.rejects(call(),{status:400});
+  });
+  await check('the lesson-open log is admin-only over HTTP and shown in the product editor',async()=>{
+    const route=base+'/v1/hubs/'+hubId+'/catalogue/products/'+paid.id+'/opens';
+    const listed=await fetch(route+'?limit=1',{headers:{authorization:'Bearer learner-a'}});assert.equal(listed.status,200);
+    const page=await listed.json();assert.equal(page.opens.length,1);assert.ok(page.next);
+    assert.equal((await fetch(route+'?before='+page.next,{headers:{authorization:'Bearer learner-a'}})).status,200);
+    assert.equal((await fetch(route,{headers:{authorization:'Bearer learner-b'}})).status,404);
+    assert.equal((await fetch(route+'?limit=0',{headers:{authorization:'Bearer learner-a'}})).status,400);
+    const host='learn-new.example',exchange=await fetch(base+'/v1/hubs/'+hubId+'/session',{method:'POST',headers:{authorization:'Bearer learner-a',host,origin:'https://'+host}});
+    const editor=await (await fetch(base+'/h/'+slug+'/admin/products/'+paid.id,{headers:{host,cookie:exchange.headers.get('set-cookie').split(';')[0]}})).text();
+    assert.ok(editor.includes('Recent lesson opens'));assert.ok(editor.includes('TestAgent/1.0'));
   });
 }
