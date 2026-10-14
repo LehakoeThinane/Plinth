@@ -148,10 +148,27 @@ already read. Real servers can step clocks too, so this was a genuine bug.
 Validation: `npm run verify` passed 213 checks; the full PostgreSQL 17 suite
 passed 144 checks (three new) on four consecutive runs. See [tiers](tiers.md).
 
+## Building with stand-ins
+
+Agreed on 14 October 2026: blocked areas are built against local stand-ins that
+need no credentials and refuse to run in production, swapped for real adapters
+later ([stand-ins](../stand-ins.md)). A local test sign-in that mimics Auth0 was
+approved for local use only. Order: payments, media, email, live updates, then a
+full local run.
+
+## Tenth implemented slice: once-off purchases
+
+Checkout, a TEST MODE payment page, signed webhooks, a double-entry ledger and
+purchase entitlements, all applied in one database transaction by a constrained
+payments login. Duplicate events, wrong amounts and orders priced below their
+plan never grant access. Migration 025.
+
+Validation: `npm run verify` passed 220 checks; the full PostgreSQL 17 suite
+passed 148 checks (four new) on three consecutive runs, plus three unit tests for
+the stand-in provider's signatures and sessions. See [payments](payments.md).
+
 ## Next
 
-The four locally buildable launch requirements are now in place: library,
-community, enquiries and tier set-up. What remains for launch depends on outside
-decisions: payments (checkout, subscriptions, seats), media storage (video,
-audio, PDF assets) and the AWS/Auth0 accounts (staging, real sign-in). Protected file assets and checkout remain blocked on storage and the
+Payments continue with subscriptions (tiers), seats and refunds; then the media
+stand-in. Protected file assets and checkout remain blocked on storage and the
 payment provider decision.

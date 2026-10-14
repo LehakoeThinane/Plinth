@@ -25,5 +25,5 @@ export async function createEmbeddedPools() {
       async end() {}
     };
   }
-  return {admin:pool('admin'),app:pool('plinth_app'),auth:pool('plinth_auth'),domains:pool('plinth_domain_verifier'),maintenance:pool('plinth_maintenance'),close:()=>engine.close()};
+  return {admin:pool('admin'),app:pool('plinth_app'),auth:pool('plinth_auth'),domains:pool('plinth_domain_verifier'),maintenance:pool('plinth_maintenance'),payments:pool('plinth_payments'),close:()=>engine.close()};
 }

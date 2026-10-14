@@ -193,6 +193,18 @@ clickAll('.tier-status',async b=>{
   if(b.dataset.action==='archive'&&!window.confirm('Archive this tier? It stops being offered and cannot be reopened.'))return false;
   await request('catalogue/tiers/'+document.querySelector('#tier-details').dataset.tierId+'/'+b.dataset.action,'POST');
 });
+document.querySelector('#start-checkout')?.addEventListener('click',async event=>{
+  const button=event.currentTarget;button.disabled=true;
+  // One key per page: a double click or retry returns the same order.
+  const key=button.dataset.key||(button.dataset.key=crypto.randomUUID());
+  const response=await fetch('/v1/hubs/'+hubId+'/checkout',{method:'POST',credentials:'same-origin',
+    headers:{'content-type':'application/json','x-csrf-token':csrf,'idempotency-key':key},body:JSON.stringify({planId:button.dataset.planId,slug})});
+  const result=await response.json().catch(()=>({}));
+  if(response.ok&&result.redirectUrl){window.location.assign(result.redirectUrl);return;}
+  if(response.ok){window.location.assign('/h/'+slug+'/orders/'+result.orderId);return;}
+  const messages={join_first:'Join this hub before buying.',already_owned:'You already have this product. Find it in My learning.',not_yet_supported:'This price type is not on sale yet.'};
+  status.textContent=messages[result.error]??'Checkout could not start. Please try again.';button.disabled=false;
+});
 formHandler('create-enquiry',async form=>{
   const data=Object.fromEntries(new FormData(form));if(!data.requesterOrg)delete data.requesterOrg;
   const created=await request('enquiries','POST',data);window.location.assign('/h/'+slug+'/enquiries/'+created.id);

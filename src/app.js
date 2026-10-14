@@ -24,8 +24,10 @@ import { CommunityRepository } from './db/community-repository.js';
 import { CommunityService } from './modules/community/community-service.js';
 import { MessagingRepository } from './db/messaging-repository.js';
 import { TierRepository } from './db/tier-repository.js';
+import { CommerceRepository,PaymentsRepository } from './db/commerce-repository.js';
+import { CheckoutService } from './modules/commerce/checkout-service.js';
 /** Composition root: infrastructure is injected and owned by the caller. */
-export function createApplication({pool,authenticate,browserSessions,hostedSignIn,accountLinks,brandingStore,domainVerificationPool,resolveDomainTxt,cache=new MemoryAccessCache(),onError}) {
+export function createApplication({pool,authenticate,browserSessions,hostedSignIn,accountLinks,brandingStore,domainVerificationPool,resolveDomainTxt,paymentProvider,paymentsPool,cache=new MemoryAccessCache(),onError}) {
   if(!pool || typeof authenticate!=='function')throw Error('Database and verified authentication adapters are required');
   const database=new TenantDatabase(pool);
   const verifier=domainVerificationPool?new TenantDatabase(domainVerificationPool):undefined;
@@ -38,7 +40,11 @@ export function createApplication({pool,authenticate,browserSessions,hostedSignI
     communityForPrincipal:principal=>new CommunityService({access:new AccessService(new PostgresAccessRepository(database,principal.userId),cache),userId:principal.userId}),
     moderationForPrincipal:principal=>new CommunityRepository(database,principal.userId),
     messagingForPrincipal:principal=>new MessagingRepository(database,principal.userId),
-    tierForPrincipal:principal=>new TierRepository(database,principal.userId),publicTiers:new TierRepository(database),logoForPrincipal:brandingStore?principal=>new LogoService({store:brandingStore,hubs:new HubRepository(database,principal.userId)}):undefined,onError,noticeForPrincipal:principal=>new NoticeRepository(database,principal.userId),identityForPrincipal:principal=>new IdentityRepository(database,principal.userId),
+    tierForPrincipal:principal=>new TierRepository(database,principal.userId),publicTiers:new TierRepository(database),
+    // Commerce needs both a payment provider adapter and the payments database login.
+    ...(paymentProvider&&paymentsPool?{paymentProvider,payments:new PaymentsRepository(paymentsPool),
+      ordersForPrincipal:principal=>new CommerceRepository(database,principal.userId),
+      checkoutForPrincipal:principal=>new CheckoutService({orders:new CommerceRepository(database,principal.userId),provider:paymentProvider})}:{}),logoForPrincipal:brandingStore?principal=>new LogoService({store:brandingStore,hubs:new HubRepository(database,principal.userId)}):undefined,onError,noticeForPrincipal:principal=>new NoticeRepository(database,principal.userId),identityForPrincipal:principal=>new IdentityRepository(database,principal.userId),
     organisationForPrincipal:principal=>new OrganisationRepository(database,principal.userId),publicHubs:new HubRepository(database),hubForPrincipal:principal=>new HubRepository(database,principal.userId),consentForPrincipal:principal=>new ConsentRepository(database,principal.userId),accessForPrincipal:principal=>
     new AccessService(new PostgresAccessRepository(database,principal.userId),cache)});
 }
@@ -48,7 +54,7 @@ export function createApplication({pool,authenticate,browserSessions,hostedSignI
  * Optional trusted OIDC configuration enables the hosted sign-in routes.
  * No provider account or issuer activation is provisioned here.
  */
-export function createManagedApplication({pool,authPool,auth,oidcConfiguration,originForHub,brandingStore,domainVerificationPool,resolveDomainTxt,cache,onError}) {
+export function createManagedApplication({pool,authPool,auth,oidcConfiguration,originForHub,brandingStore,domainVerificationPool,resolveDomainTxt,paymentProvider,paymentsPool,cache,onError}) {
   if(!authPool||!auth||typeof originForHub!=='function')throw new Error('Managed auth configuration and separate auth pool required');
   const repository=new AuthRepository(authPool);
   const authenticate=createManagedAuthenticator({...auth,resolveUser:(issuer,subject)=>repository.resolveUser(issuer,subject)});
@@ -57,7 +63,7 @@ export function createManagedApplication({pool,authPool,auth,oidcConfiguration,o
     resolveUser:(issuer,subject)=>repository.resolveUser(issuer,subject),
     linkIdentity:(sessionHash,issuer,subject)=>repository.linkIdentity(sessionHash,issuer,subject)}):undefined;
   const accountLinks=hostedSignIn?accountLinksFor(hostedSignIn,repository):undefined;
-  return createApplication({pool,authenticate,browserSessions,hostedSignIn,accountLinks,brandingStore,domainVerificationPool,resolveDomainTxt,cache,onError});
+  return createApplication({pool,authenticate,browserSessions,hostedSignIn,accountLinks,brandingStore,domainVerificationPool,resolveDomainTxt,paymentProvider,paymentsPool,cache,onError});
 }
 
 /** Sign-in-method management: linking needs hosted sign-in; both act on the browser session. */

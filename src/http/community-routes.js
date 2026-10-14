@@ -34,3 +34,13 @@ export const matchTierApi=routeTable([
   ['POST',`catalogue/tiers/${id}/benefits`,async(c,h,t)=>[201,await c.tiers.addBenefit(h,t,await c.body())]],
   ['DELETE',`catalogue/tiers/${id}/benefits/${id}`,(c,h,t,b)=>c.tiers.removeBenefit(h,t,b)]
 ]);
+export const matchCommerceApi=routeTable([
+  ['POST',`checkout`,async(c,h)=>{
+    const input=await c.body(),hub=await c.resolveSlug(input.slug);
+    if(hub.id!==h)throw Object.assign(new Error('Not found'),{status:404});
+    return [201,await c.checkout.checkout(h,{planId:input.planId,idempotencyKey:c.headers['idempotency-key'],returnUrlFor:id=>'/h/'+hub.slug+'/orders/'+id})];
+  }],
+  ['GET',`orders`,async(c,h)=>({orders:await c.orders.orders(h)})],
+  ['GET',`orders/${id}`,(c,h,o)=>c.orders.order(h,o)],
+  ['GET',`catalogue/sales`,(c,h)=>c.orders.sales(h)]
+]);

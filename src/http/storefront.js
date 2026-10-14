@@ -56,7 +56,7 @@ export function renderProductPage(hub,{product,modules,plans},{signIn=false}={})
     return `<li>${title}${l.preview_available&&product.access_mode!=='open'?' · preview':''}</li>`;
   };
   const outline=modules.map(m=>`<li><strong>${e(m.title)}</strong><ol>${m.lessons.map(lessonItem).join('')}</ol></li>`).join('');
-  const pricing=product.access_mode==='entitled'?(plans.length?`<ul>${plans.map(p=>`<li class="price">${e(priceLabel(p))}</li>`).join('')}</ul><p>Purchasing opens soon.</p>`:'<p>Not currently on sale.</p>')
+  const pricing=product.access_mode==='entitled'?(plans.length?`<ul>${plans.map(p=>`<li class="price">${e(priceLabel(p))} ${p.model==='once_off'?`<a href="/h/${e(hub.slug)}/checkout/${e(product.id)}/${e(p.id)}">Buy now</a>`:'· opening soon'}</li>`).join('')}</ul>`:'<p>Not currently on sale.</p>')
     :`<p class="price">${product.access_mode==='members'?'Free for hub members':'Free'}</p>`;
   return layout(hub,{signIn,title:product.title+' · '+hub.display_name,main:`<section class="intro"><p class="eyebrow">${e(typeLabels[product.type]??'Course')}</p>
 <h1>${e(product.title)}</h1><p class="description">${e(product.summary)}</p></section>

@@ -29,6 +29,7 @@ jobs:
       TEST_AUTH_DATABASE_URL: postgresql://plinth_auth:local-development-only@localhost:5432/plinth
       TEST_DOMAIN_DATABASE_URL: postgresql://plinth_domain_verifier:local-development-only@localhost:5432/plinth
       TEST_MAINTENANCE_DATABASE_URL: postgresql://plinth_maintenance:local-development-only@localhost:5432/plinth
+      TEST_PAYMENTS_DATABASE_URL: postgresql://plinth_payments:local-development-only@localhost:5432/plinth
       PGPASSWORD: local-development-only
     steps:
       - uses: actions/checkout@v4
@@ -62,6 +63,7 @@ jobs:
       - run: psql -h localhost -U plinth_admin -d plinth -v ON_ERROR_STOP=1 -f db/migrations/022-enquiries.sql
       - run: psql -h localhost -U plinth_admin -d plinth -v ON_ERROR_STOP=1 -f db/migrations/023-tiers.sql
       - run: psql -h localhost -U plinth_admin -d plinth -v ON_ERROR_STOP=1 -f db/migrations/024-message-order.sql
+      - run: psql -h localhost -U plinth_admin -d plinth -v ON_ERROR_STOP=1 -f db/migrations/025-orders-ledger.sql
       - run: npm test
       - run: npm run test:tenant
       - run: npm run test:http
