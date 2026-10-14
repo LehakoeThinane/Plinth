@@ -355,7 +355,7 @@ The existing identity/membership tables are a starting point, not acceptance of
 the full global account model. Auth-provider setup requires an actual tenant and
 configuration. No production payment/video integration has been introduced.
 
-Next implementation slice: not yet selected from the remaining scope above.
+Local Phase 1 work is complete; development continues in [Phase 2](../phase-2/status.md).
 Overall Phase 0 external gates remain open.
 
 ## Re-verification — 13 October 2026

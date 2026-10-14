@@ -1,5 +1,5 @@
 import { createServer } from 'node:http';
-import { renderStorefront } from './storefront.js';
+import { renderStorefront,renderProductPage } from './storefront.js';
 import { readFile } from 'node:fs/promises';
 import { renderApplicationShell } from './application-shell.js';
 import { clearLoginCookie,isRecentSignIn } from '../modules/identity/hosted-sign-in.js';
@@ -29,7 +29,7 @@ async function readObject(req,maxBytes=4096) {
  * No default authenticator, development header override or public token issuer.
  * This endpoint returns an ACCESS DECISION only, never media/content.
  */
-export function createApi({authenticate,accessForPrincipal,consentForPrincipal,noticeForPrincipal,hubForPrincipal,identityForPrincipal,organisationForPrincipal,logoForPrincipal,brandingStore,domainForPrincipal,orgDomainsForPrincipal,publicHubs,browserSessions,hostedSignIn,accountLinks,onError=()=>{}}) {
+export function createApi({authenticate,accessForPrincipal,consentForPrincipal,noticeForPrincipal,hubForPrincipal,identityForPrincipal,organisationForPrincipal,logoForPrincipal,brandingStore,domainForPrincipal,orgDomainsForPrincipal,catalogueForPrincipal,publicCatalogue,publicHubs,browserSessions,hostedSignIn,accountLinks,onError=()=>{}}) {
   if(typeof authenticate!=='function'||typeof accessForPrincipal!=='function')throw Error('Verified authentication adapter required');
   return createServer(async(req,res)=>{
     const send=(status,body)=>{res.writeHead(status,{'content-type':'application/json','cache-control':'no-store'});res.end(JSON.stringify(body));};
@@ -85,12 +85,25 @@ export function createApi({authenticate,accessForPrincipal,consentForPrincipal,n
       }
       const storefront=path.match(/^\/h\/([a-z0-9-]+)$/);
       if(publicHubs && req.method==='GET' && storefront) {
-        const html=renderStorefront(await publicHubs.resolve({slug:storefront[1]}),{signIn:Boolean(hostedSignIn)});
+        const hub=await publicHubs.resolve({slug:storefront[1]});
+        const html=renderStorefront(hub,{signIn:Boolean(hostedSignIn),products:publicCatalogue?await publicCatalogue.shelf(hub.id):null});
+        res.writeHead(200,htmlHeaders);
+        return res.end(html);
+      }
+      const productPage=path.match(/^\/h\/([a-z0-9-]+)\/products\/([0-9a-f-]{36})$/);
+      if(publicHubs && publicCatalogue && req.method==='GET' && productPage && uuid.test(productPage[2])) {
+        const hub=await publicHubs.resolve({slug:productPage[1]});
+        const html=renderProductPage(hub,await publicCatalogue.page(hub.id,productPage[2]),{signIn:Boolean(hostedSignIn)});
         res.writeHead(200,htmlHeaders);
         return res.end(html);
       }
       if(publicHubs && req.method==='GET' && path==='/v1/hubs/resolve') {
         return send(200,await publicHubs.resolve({slug:requestUrl.searchParams.get('slug'),hostname:requestUrl.searchParams.get('hostname')}));
+      }
+      // The shelf is public: company products are hidden by the database boundary.
+      const shelf=path.match(/^\/v1\/hubs\/([0-9a-f-]{36})\/products(?:\/([0-9a-f-]{36}))?$/);
+      if(publicCatalogue && req.method==='GET' && shelf && uuid.test(shelf[1]) && (!shelf[2]||uuid.test(shelf[2]))) {
+        return send(200,shelf[2]?await publicCatalogue.page(shelf[1],shelf[2]):{products:await publicCatalogue.shelf(shelf[1])});
       }
       const match=path.match(/^\/v1\/hubs\/([^/]+)\/lessons\/([^/]+)\/access$/);
       const consent=path.match(/^\/v1\/hubs\/([^/]+)\/consents$/);
@@ -105,6 +118,10 @@ export function createApi({authenticate,accessForPrincipal,consentForPrincipal,n
           org[3]==='invitations'?(org[4]?req.method==='DELETE':req.method==='POST'):
           org[4]&&['PUT','DELETE'].includes(req.method):['GET','PUT'].includes(req.method):req.method==='POST');
       const readAccount=accountRoute && uuid.test(accountRoute[1]) && req.method==='GET';
+      const catalogue=path.match(/^\/v1\/hubs\/([0-9a-f-]{36})\/catalogue\/products(?:\/([0-9a-f-]{36})(?:\/(modules|lessons|plans|publish)(?:\/([0-9a-f-]{36}))?)?)?$/);
+      const catalogueRoute=catalogueForPrincipal && catalogue && [1,2,4].every(i=>catalogue[i]===undefined||uuid.test(catalogue[i])) &&
+        (!catalogue[2]?['GET','POST'].includes(req.method):!catalogue[3]?['GET','PATCH'].includes(req.method):
+          catalogue[4]?catalogue[3]==='plans'&&req.method==='DELETE':req.method==='POST');
       const orgDomain=path.match(/^\/v1\/hubs\/([0-9a-f-]{36})\/organisations\/([0-9a-f-]{36})\/domains(?:\/(verify))?$/);
       const orgDomainRoute=orgDomainsForPrincipal && orgDomain && uuid.test(orgDomain[1]) && uuid.test(orgDomain[2]) &&
         (orgDomain[3]?req.method==='POST':['GET','POST','DELETE'].includes(req.method));
@@ -121,12 +138,12 @@ export function createApi({authenticate,accessForPrincipal,consentForPrincipal,n
       const createHub=hubForPrincipal && path==='/v1/hubs' && req.method==='POST';
       const hubRoute=hubForPrincipal && hubAction && uuid.test(hubAction[1]) &&
         req.method===({join:'POST',membership:'GET',branding:'PUT'})[hubAction[2]];
-      if(!domainRoute && !orgDomainRoute && !logoRoute && !noticeRoute && !readAccount && !linkRoute && !orgRoute &&!sessionRoute && !createHub && !hubRoute && !consentRoute && (req.method!=='GET'||!match||!uuid.test(match[1])||!uuid.test(match[2])))return send(404,{error:'not_found'});
+      if(!catalogueRoute && !domainRoute && !orgDomainRoute &&!logoRoute && !noticeRoute && !readAccount && !linkRoute && !orgRoute &&!sessionRoute && !createHub && !hubRoute && !consentRoute && (req.method!=='GET'||!match||!uuid.test(match[1])||!uuid.test(match[2])))return send(404,{error:'not_found'});
       const bearer=req.headers.authorization?.match(/^Bearer ([^\s]+)$/)?.[1];
       if(req.headers.authorization && !bearer)return send(401,{error:'unauthenticated'});
       const principal=bearer?await authenticate(bearer):await browserSessions?.principal(req);
       if(!principal||!uuid.test(principal.userId??''))return send(401,{error:'unauthenticated'});
-      const targetHub=domainRoute?domain[1]:orgDomainRoute?orgDomain[1]:logoRoute?logo[1]:noticeRoute?notice[1]:readAccount?accountRoute[1]:linkRoute?links[1]:orgRoute?org[1]:sessionRoute?sessionAction[1]:hubRoute?hubAction[1]:consentRoute?consent[1]:match?.[1];
+      const targetHub=catalogueRoute?catalogue[1]:domainRoute?domain[1]:orgDomainRoute?orgDomain[1]:logoRoute?logo[1]:noticeRoute?notice[1]:readAccount?accountRoute[1]:linkRoute?links[1]:orgRoute?org[1]:sessionRoute?sessionAction[1]:hubRoute?hubAction[1]:consentRoute?consent[1]:match?.[1];
       if(principal.sessionHash && targetHub && principal.hubId!==targetHub)return send(404,{error:'not_found'});
       if(principal.sessionHash && !['GET','HEAD'].includes(req.method))browserSessions.checkMutation(req,principal);
       if(domainRoute) {
@@ -134,6 +151,15 @@ export function createApi({authenticate,accessForPrincipal,consentForPrincipal,n
         if(req.method==='GET')return send(200,await domains.list(targetHub));
         const input=await readObject(req);
         return send(200,await (domain[2]?domains.verify(targetHub,input):req.method==='DELETE'?domains.remove(targetHub,input):domains.request(targetHub,input)));
+      }
+      if(catalogueRoute) {
+        const products=catalogueForPrincipal(principal),[,hubId,productId,part,planId]=catalogue;
+        if(!productId)return req.method==='GET'?send(200,{products:await products.list(hubId)}):send(201,await products.create(hubId,await readObject(req)));
+        if(!part)return send(200,req.method==='GET'?await products.get(hubId,productId):await products.update(hubId,productId,await readObject(req)));
+        if(part==='publish')return send(200,await products.publish(hubId,productId));
+        if(planId)return send(200,await products.retirePlan(hubId,productId,planId));
+        const input=await readObject(req);
+        return send(201,await (part==='modules'?products.addModule(hubId,productId,input):part==='lessons'?products.addLesson(hubId,productId,input):products.addPlan(hubId,productId,input)));
       }
       if(orgDomainRoute) {
         const domains=orgDomainsForPrincipal(principal),[,hubId,orgId,verify]=orgDomain;

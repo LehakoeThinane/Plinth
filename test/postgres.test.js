@@ -22,6 +22,7 @@ import { logoChecks } from './logo-workflows.js';
 import { domainChecks } from './domain-workflows.js';
 import { accountLinkChecks } from './account-link-workflows.js';
 import { organisationDomainChecks } from './org-domain-workflows.js';
+import { catalogueChecks } from './catalogue-workflows.js';
 import { LocalBrandingStore } from '../src/storage/local-branding.js';
 import { mkdir,mkdtemp,rm } from 'node:fs/promises';
 import { resolve,relative,isAbsolute } from 'node:path';
@@ -253,6 +254,9 @@ try {
     await assert.rejects(consentA.set(a,{purpose:'updates',granted:true,noticeVersion:'v1'}),{status:409});
     assert.equal((await admin.query("SELECT count(*)::int AS n FROM compliance.consent_events WHERE hub_id=$1 AND notice_text='Original updates notice'",[a])).rows[0].n,1);
   });
+  // Publishing requires a lesson, and a paid public product an active price.
+  await admin.query("INSERT INTO catalogue.lessons(hub_id,id,product_id,boundary_id,title) VALUES ($1,$2,$3,$4,'public lesson')",[a,randomUUID(),publicProduct,publicBoundary]);
+  await admin.query("INSERT INTO catalogue.plans(hub_id,id,product_id,boundary_id,model,amount_cents) VALUES ($1,$2,$3,$4,'once_off',10000)",[a,randomUUID(),publicProduct,publicBoundary]);
   await admin.query("UPDATE catalogue.products SET status='published' WHERE hub_id=$1",[a]);
   await admin.query("UPDATE catalogue.lessons SET status='published' WHERE hub_id=$1",[a]);
   await admin.query('INSERT INTO access.entitlements(hub_id,id,user_id,target_id) VALUES ($1,$2,$3,$4)',[a,entitlement,userA,privateProduct]);
@@ -383,6 +387,7 @@ try {
   await noticeChecks({admin,app,db,hubId:createdHub,otherHub:a,userA,userB,check,embeddedMode,base,fetch,slug:createdSlug});
   await logoChecks({admin,app,db,hubId:createdHub,otherHub:a,userA,check,embeddedMode,base,fetch,slug:createdSlug,store:brandingStore});
   await domainChecks({admin,app,domains,db,hubId:createdHub,otherHub:a,userA,userB,check,embeddedMode,base,fetch,slug:createdSlug,records:domainRecords});
+  await catalogueChecks({admin,app,db,hubId:createdHub,otherHub:a,userA,userB,companyOrg:orgA,check,base,fetch,slug:createdSlug,embeddedMode});
   const browserHeaders={host:'learn-a.example',origin:'https://learn-a.example'};
   await check('browser session exchange requires a verified bearer and exact trusted origin',async()=>{
     const sessionUrl=base+'/v1/hubs/'+a+'/session';
@@ -525,9 +530,11 @@ try {
   await admin.query('DELETE FROM tenancy.memberships WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM identity.org_members WHERE user_id=ANY($1::uuid[])',[testUsers]);
   await admin.query('DELETE FROM identity.users WHERE id=ANY($1::uuid[])',[testUsers]);
-  await admin.query('DELETE FROM catalogue.lessons WHERE hub_id=ANY($1::uuid[])',[[a,b]]);
-  await admin.query('DELETE FROM catalogue.products WHERE hub_id=ANY($1::uuid[])',[[a,b]]);
-  await admin.query('DELETE FROM tenancy.boundaries WHERE hub_id=ANY($1::uuid[])',[[a,b]]);
+  await admin.query('DELETE FROM catalogue.plans WHERE hub_id=ANY($1::uuid[])',[testHubs]);
+  await admin.query('DELETE FROM catalogue.lessons WHERE hub_id=ANY($1::uuid[])',[testHubs]);
+  await admin.query('DELETE FROM catalogue.modules WHERE hub_id=ANY($1::uuid[])',[testHubs]);
+  await admin.query('DELETE FROM catalogue.products WHERE hub_id=ANY($1::uuid[])',[testHubs]);
+  await admin.query('DELETE FROM tenancy.boundaries WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM tenancy.hub_domains WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM tenancy.hub_profiles WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM tenancy.hubs WHERE id=ANY($1::uuid[])',[testHubs]);
