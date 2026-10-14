@@ -22,7 +22,7 @@ are still pending.
 - A separate metadata-only public listing operation.
 - Recipient authorisation at message delivery, including suspension and company removal.
 - Progress conflict handling: monotonic completion/furthest position, independently mutable resume position.
-- Sixteen domain regression cases (`npm test`); the full local suite is 226 checks (`npm run verify`).
+- Sixteen domain regression cases (`npm test`); the full local suite is 229 checks (`npm run verify`).
 
 ## Run tests
 
@@ -52,7 +52,18 @@ Still to build: the complete product schema beyond the initial migrations, other
 
 See [Sprint 0 status](docs/sprint-0.md), [validation questions](docs/validation.md), [retention matrix](docs/retention.md), and [environment setup](docs/environments.md). PostgreSQL/Redis Compose and an RLS integration harness are added; live PostgreSQL checks remain unverified until the Docker engine is available.
 
-The continuation adds six HTTP tests (npm run test:http). These verify routing/authentication boundaries with a fake service; actual RLS-backed HTTP cases live in test/postgres.test.js and remain unverified until PostgreSQL is available. No development token issuer or trusted-header authentication bypass is included.
+The continuation adds six HTTP tests (npm run test:http). These verify routing/authentication boundaries with a fake service; actual RLS-backed HTTP cases live in test/postgres.test.js and remain unverified until PostgreSQL is available. There is no trusted-header authentication bypass. The only test sign-in is the local OIDC stand-in used by `npm run local` (below); it goes through the same code + PKCE flow as Auth0 and refuses to run in production.
+
+## Click through it locally
+
+With Docker running:
+
+```
+docker compose -p plinth-phase0 up -d
+npm run local
+```
+
+Open https://localhost:8443. Your browser warns once about the self-signed local certificate; continue to localhost. The first run creates the Zoya Speaks demo hub. The TEST SIGN-IN page lets you sign in as Zoya (provider admin), Thabo (learner), Lerato (Absa employee), Sipho (prospect) or a brand-new visitor. Purchases go through the TEST MODE payment page, and no real money moves. See [stand-ins](docs/stand-ins.md).
 
 ## Database verification without Docker
 
@@ -101,5 +112,5 @@ with fresh provider sign-in and recent-session checks; see
 [account linking](docs/phase-1/account-linking.md).
 See [authentication setup](docs/phase-1/authentication.md).
 `npm run dev` remains a health shell; it does not enable test authentication or
-seed accounts. Apply migrations 003–027 in order to an
+seed accounts (`npm run local` does both, locally only). Apply migrations 003–027 in order to an
 existing local database; fresh Compose volumes and CI apply them automatically.

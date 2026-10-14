@@ -13,12 +13,14 @@
     "test:logo": "node --test test/logo.test.js",
     "test:domain": "node --test test/domain.test.js",
     "test:payments": "node --test test/payment.test.js",
+    "test:standins": "node --test test/identity-standin.test.js",
     "test:db:embedded": "node test/run-embedded.js",
     "dev": "node scripts/dev.js",
+    "local": "node --env-file-if-exists=.env scripts/local.js",
     "logos:gc": "node --env-file-if-exists=.env scripts/collect-logos.js",
     "records:expire": "node --env-file-if-exists=.env scripts/expire-records.js",
     "test:architecture": "node --test test/architecture.test.js",
-    "verify": "npm test && npm run test:tenant && npm run test:http && npm run test:auth && npm run test:hosted-auth && npm run test:architecture && npm run test:notice-migration && npm run test:logo && npm run test:domain && npm run test:payments && npm run test:db:embedded"
+    "verify": "npm test && npm run test:tenant && npm run test:http && npm run test:auth && npm run test:hosted-auth && npm run test:architecture && npm run test:notice-migration && npm run test:logo && npm run test:domain && npm run test:payments && npm run test:standins && npm run test:db:embedded"
   },
   "engines": {
     "node": ">=22"

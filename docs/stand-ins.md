@@ -12,8 +12,26 @@ changing feature code. Stand-in screens are labelled TEST MODE.
 | Media storage and video | Private local files with signed links | Planned next | S3/CloudFront and Mux |
 | Email | Outbox written to a local folder or log | Planned | Email provider (not selected) |
 | Live updates | Real WebSocket gateway on local Redis | Planned | None; it is production code |
-| Sign-in | Local OIDC stand-in for Auth0, same PKCE flow | Planned | Auth0 tenant (setup on hold) |
-| Staging | Full local Docker run | Planned | Terraform on AWS (account on hold) |
+| Sign-in | `TestIdentityProvider` (`src/dev/test-identity-provider.js`) | Built | Auth0 tenant (setup on hold) |
+| Staging | `npm run local` (`scripts/local.js`) with demo data | Built | Terraform on AWS (account on hold) |
+
+## Sign-in stand-in and the local run
+
+`npm run local` serves the app on https://localhost:8443 with a self-signed
+certificate (created once with OpenSSL into `.local/certs`), because session
+cookies are `__Host-`/`Secure` exactly as in production. It seeds the Zoya
+Speaks demo hub once (`src/dev/demo-seed.js`), mostly through the app's own
+repositories, so the data obeys the same rules as real use.
+
+`TestIdentityProvider` stands in for Auth0. `/test-auth/authorize` shows a
+TEST SIGN-IN page listing the demo people and a brand-new visitor. Choosing one
+issues a one-use code. The app redeems it through the normal hosted sign-in
+callback with S256 PKCE and receives an ES256-signed ID token, using keys
+generated per process. Token and key requests are answered in-process. The
+page rejects foreign redirect URIs, other client IDs and non-S256 requests.
+Swapping in Auth0 means passing its discovered configuration as
+`oidcConfiguration` and enabling its issuer, as described in the
+[Auth0 setup guide](phase-1/auth0-setup.md).
 
 ## Payments stand-in
 
