@@ -14,6 +14,22 @@ export class CheckoutService {
     await this.#orders.attachReference(hubId,order.id,this.#provider.name,session.reference);
     return {orderId:order.id,status:'pending',redirectUrl:session.redirectUrl};
   }
+  /** Starts a subscription; the provider keeps a card authorisation for renewals. */
+  async subscribe(hubId,{tierId,planId,idempotencyKey,returnUrlFor}) {
+    const order=await this.#orders.createSubscription(hubId,{tierId,planId,idempotencyKey});
+    // A retried request returns the same order, subscription and payment page.
+    if(order.psp_reference)return {orderId:order.id,subscriptionId:order.subscription_id,status:order.status,redirectUrl:this.#provider.redirectUrl(order.psp_reference)};
+    if(order.status!=='pending')return {orderId:order.id,subscriptionId:order.subscription_id,status:order.status,redirectUrl:null};
+    const session=await this.#provider.createSession({orderId:order.id,hubId,amountCents:Number(order.total_cents),
+      returnUrl:returnUrlFor(order.id),description:order.description,recurring:true});
+    await this.#orders.attachReference(hubId,order.id,this.#provider.name,session.reference);
+    return {orderId:order.id,subscriptionId:order.subscription_id,status:'pending',redirectUrl:session.redirectUrl};
+  }
+  async cancel(hubId,subscriptionId) {
+    const subscription=await this.#orders.cancelSubscription(hubId,subscriptionId);
+    if(subscription.psp_provider===this.#provider.name)await this.#provider.cancelSubscription(subscription.psp_reference);
+    return {cancelled:true,accessUntil:subscription.current_period_end};
+  }
   /** Asks the provider to refund a paid order in full. The order, ledger and
    * access change only when the provider's signed confirmation is applied.
    */

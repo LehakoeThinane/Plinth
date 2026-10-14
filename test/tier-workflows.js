@@ -71,7 +71,7 @@ export async function tierChecks({admin,db,hubId,userA,companyOrg,check,base,fet
     const api=await fetch(base+'/v1/hubs/'+hubId+'/tiers');assert.equal(api.status,200);assert.ok((await api.json()).tiers.some(t=>t.id===gold));
     await owner.update(hubId,silver,{description:'Starter <b>tier</b>'});
     const page=await (await fetch(base+'/h/'+slug+'/membership')).text();
-    assert.ok(page.includes('R250.00 per month'));assert.ok(page.includes('Starter &lt;b&gt;tier&lt;/b&gt;'));assert.ok(!page.includes('<b>tier'));assert.ok(page.includes('Subscriptions open soon'));
+    assert.ok(page.includes('R250.00 <small>per month</small>'));assert.ok(page.includes('Starter &lt;b&gt;tier&lt;/b&gt;'));assert.ok(!page.includes('<b>tier'));assert.ok(page.includes('/subscribe/'+gold));
     const route=base+'/v1/hubs/'+hubId+'/catalogue/tiers';
     assert.equal((await fetch(route,{method:'POST',headers:{authorization:'Bearer learner-b'},body:JSON.stringify({...tier,rank:40})})).status,404);
     const created=await fetch(route,{method:'POST',headers:{authorization:'Bearer learner-a'},body:JSON.stringify({...tier,name:'API tier',rank:40})});assert.equal(created.status,201);

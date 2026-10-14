@@ -29,6 +29,7 @@ import { communityChecks } from './community-workflows.js';
 import { enquiryChecks } from './enquiry-workflows.js';
 import { tierChecks } from './tier-workflows.js';
 import { commerceChecks } from './commerce-workflows.js';
+import { subscriptionChecks } from './subscription-workflows.js';
 import { TestPaymentProvider } from '../src/modules/commerce/test-payment-provider.js';
 import { LocalBrandingStore } from '../src/storage/local-branding.js';
 import { mkdir,mkdtemp,rm } from 'node:fs/promises';
@@ -408,6 +409,7 @@ try {
   await enquiryChecks({admin,db,hubId:createdHub,userA,companyOrg:orgA,check,base,fetch,slug:createdSlug,testUsers});
   await tierChecks({admin,db,hubId:createdHub,userA,companyOrg:orgA,check,base,fetch,slug:createdSlug,testUsers});
   await commerceChecks({admin,app,db,paymentsPool,provider:paymentProvider,hubId:createdHub,userA,check,base,fetch,slug:createdSlug,testUsers});
+  await subscriptionChecks({admin,db,paymentsPool,provider:paymentProvider,hubId:createdHub,userA,check,base,fetch,slug:createdSlug,testUsers});
   const browserHeaders={host:'learn-a.example',origin:'https://learn-a.example'};
   await check('browser session exchange requires a verified bearer and exact trusted origin',async()=>{
     const sessionUrl=base+'/v1/hubs/'+a+'/session';
@@ -545,6 +547,7 @@ try {
   await admin.query("DELETE FROM commerce.payment_events WHERE reference IN (SELECT psp_reference FROM commerce.orders WHERE hub_id=ANY($1::uuid[])) OR reference LIKE 'test\\_%'",[testHubs]);
   await admin.query('DELETE FROM commerce.order_lines WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM commerce.orders WHERE hub_id=ANY($1::uuid[])',[testHubs]);
+  await admin.query('DELETE FROM commerce.subscriptions WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   for(const table of ['reactions','comments','reports','posts','spaces'])await admin.query('DELETE FROM community.'+table+' WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   for(const table of ['messages','participants','enquiries','conversations'])await admin.query('DELETE FROM messaging.'+table+' WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM tenancy.domain_claims WHERE hub_id=ANY($1::uuid[])',[testHubs]);

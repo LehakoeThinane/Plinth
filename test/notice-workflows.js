@@ -138,7 +138,7 @@ export async function noticeChecks({admin,app,db,hubId,otherHub,userA,userB,chec
     const exchange=await fetch(base+'/v1/hubs/'+hubId+'/session',{method:'POST',headers:{...host,...auth}});
     const cookie=exchange.headers.get('set-cookie').split(';')[0];
     const html=await (await fetch(base+'/h/'+slug+'/admin',{headers:{...host,cookie}})).text();
-    assert.match(html,/survey · retired v1/);assert.ok(!html.includes('data-purpose="survey" data-version="v1">Retire'));
+    assert.match(html,/<h3>survey<\/h3>\s*<p class="meta"><span class="badge muted">retired<\/span><span>Version <code>v1<\/code>/);assert.ok(!html.includes('data-purpose="survey" data-version="v1">Retire'));
     const member=await (await fetch(base+'/h/'+slug+'/member',{headers:{...host,cookie}})).text();
     assert.ok(!member.includes('data-purpose="survey"'));assert.ok(member.includes('data-purpose="research"'));
   });

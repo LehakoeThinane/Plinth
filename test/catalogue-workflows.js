@@ -117,7 +117,7 @@ export async function catalogueChecks({admin,app,db,hubId,otherHub,userA,userB,c
     const storefront=await (await fetch(base+'/h/'+slug)).text();
     assert.ok(storefront.includes('Speak up, revised'));assert.ok(storefront.includes('From R200.00'));assert.ok(!storefront.includes('<script>up'));
     const page=await fetch(base+'/h/'+slug+'/products/'+live.id);assert.equal(page.status,200);
-    const html=await page.text();assert.ok(html.includes('R1 250.00'));assert.ok(html.includes('R200.00 per month'));assert.ok(html.includes('>Breathing</a> · preview'));
+    const html=await page.text();assert.ok(html.includes('R1 250.00'));assert.ok(html.includes('R200.00 per month'));assert.ok(html.includes('>Breathing</a><span class="tag">Preview</span>'));
     assert.equal((await fetch(base+'/v1/hubs/'+hubId+'/products/'+randomUUID())).status,404);
   });
   await check('admin product screens are owner/admin-only, escaped and reflect structure and prices',async()=>{
@@ -132,7 +132,7 @@ export async function catalogueChecks({admin,app,db,hubId,otherHub,userA,userB,c
     const listHtml=await list.text();assert.ok(listHtml.includes('id="create-product"'));assert.ok(listHtml.includes('Speak up, revised'));
     assert.ok(listHtml.includes('&lt;script&gt;up&lt;/script&gt;'));assert.ok(!listHtml.includes('<script>up'));
     const editor=await (await fetch(pages+'/'+live.id,{headers:{host,cookie:ownerCookie}})).text();
-    for(const text of ['Foundations','Breathing · published · preview shown','R1 250.00 once-off','R200.00 per month','id="add-plan"','data-product-id="'+live.id+'"'])assert.ok(editor.includes(text),text);
+    for(const text of ['Foundations','<strong>Breathing</strong><span class="badge ok">published</span><span class="tag">Preview shown</span>','R1 250.00 once-off','R200.00 per month','id="add-plan"','data-product-id="'+live.id+'"'])assert.ok(editor.includes(text),text);
     assert.ok(!editor.includes('id="publish-product"'));
     const company=await (await fetch(pages+'/'+companyProduct,{headers:{host,cookie:ownerCookie}})).text();
     assert.ok(company.includes('Private to organisation'));assert.ok(!company.includes('id="add-plan"'));

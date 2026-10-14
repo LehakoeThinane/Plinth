@@ -47,6 +47,57 @@ export class CommerceRepository {
       return {id:orderId,status:'pending',total_cents:plan.amount_cents,psp_reference:null,description:plan.title,replayed:false};
     });
   }
+  /** Starts a subscription to a published tier or a subscription-priced product:
+   * a pending subscription and its first order. Payment activates both.
+   */
+  async createSubscription(hubId,{tierId=null,planId=null,idempotencyKey}) {
+    if((tierId===null)===(planId===null)||![tierId,planId].filter(Boolean).every(v=>uuid.test(v)))throw fail(400);
+    if(typeof idempotencyKey!=='string'||!/^[A-Za-z0-9_-]{8,100}$/.test(idempotencyKey))throw fail(400,'idempotency_key_required');
+    const requestHash=createHash('sha256').update(JSON.stringify({tierId,planId})).digest('hex');
+    return this.#run(hubId,async tx=>{
+      const replay=(await tx.query('SELECT id,request_hash,status,total_cents,psp_reference,subscription_id FROM commerce.orders WHERE buyer_id=$1 AND idempotency_key=$2',[this.#userId,idempotencyKey])).rows[0];
+      if(replay){if(replay.request_hash!==requestHash)throw fail(409,'idempotency_key_reused');return {...replay,replayed:true};}
+      if(!(await tx.query('SELECT app.is_active_member() AS ok')).rows[0].ok)throw fail(409,'join_first');
+      let target;
+      if(tierId) {
+        target=(await tx.query("SELECT id AS tier_id,NULL::uuid AS plan_id,NULL::uuid AS product_id,name AS title,amount_cents,billing_interval FROM commerce.tiers WHERE id=$1 AND status='published'",[tierId])).rows[0];
+      } else {
+        target=(await tx.query(`SELECT NULL::uuid AS tier_id,s.id AS plan_id,p.id AS product_id,p.title,s.amount_cents,s.billing_interval,s.model
+          FROM catalogue.plans s JOIN catalogue.products p ON p.hub_id=s.hub_id AND p.id=s.product_id
+          WHERE s.id=$1 AND s.status='active' AND p.status='published' AND p.visibility<>'company' AND p.access_mode='entitled'`,[planId])).rows[0];
+        if(target&&target.model!=='subscription')throw fail(409,'not_a_subscription');
+      }
+      if(!target)throw fail(404);
+      const live=await tx.query(`SELECT 1 FROM commerce.subscriptions WHERE subscriber_id=$1 AND coalesce(tier_id,product_id)=$2 AND status IN ('active','past_due')`,
+        [this.#userId,target.tier_id??target.product_id]);
+      if(live.rows.length)throw fail(409,'already_subscribed');
+      const subscriptionId=randomUUID(),orderId=randomUUID();
+      await tx.query(`INSERT INTO commerce.subscriptions(hub_id,id,subscriber_id,tier_id,plan_id,product_id,amount_cents,billing_interval)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,[hubId,subscriptionId,this.#userId,target.tier_id,target.plan_id,target.product_id,target.amount_cents,target.billing_interval]);
+      await tx.query(`INSERT INTO commerce.orders(hub_id,id,buyer_id,subtotal_cents,total_cents,idempotency_key,request_hash,kind,subscription_id)
+        VALUES($1,$2,$3,$4,$4,$5,$6,'subscription_start',$7)`,[hubId,orderId,this.#userId,target.amount_cents,idempotencyKey,requestHash,subscriptionId]);
+      await tx.query(`INSERT INTO commerce.order_lines(hub_id,order_id,line,plan_id,product_id,tier_id,quantity,unit_amount_cents,amount_cents)
+        VALUES($1,$2,1,$3,$4,$5,1,$6,$6)`,[hubId,orderId,target.plan_id,target.product_id,target.tier_id,target.amount_cents]);
+      return {id:orderId,subscription_id:subscriptionId,status:'pending',total_cents:target.amount_cents,psp_reference:null,
+        description:target.title+' ('+(target.billing_interval==='year'?'yearly':'monthly')+')',replayed:false};
+    });
+  }
+  async subscriptions(hubId) {
+    return this.#run(hubId,async tx=>(await tx.query(`SELECT s.id,s.status,s.amount_cents,s.billing_interval,s.cancel_at_period_end,s.current_period_end,
+      s.psp_reference,coalesce(t.name,p.title) AS title,s.tier_id,s.product_id
+      FROM commerce.subscriptions s LEFT JOIN commerce.tiers t ON t.hub_id=s.hub_id AND t.id=s.tier_id
+      LEFT JOIN catalogue.products p ON p.hub_id=s.hub_id AND p.id=s.product_id
+      WHERE s.subscriber_id=$1 AND s.status<>'pending' ORDER BY s.created_at DESC LIMIT 100`,[this.#userId])).rows);
+  }
+  /** Stops renewal at the end of the paid period; access runs until then. */
+  async cancelSubscription(hubId,subscriptionId) {
+    if(!uuid.test(subscriptionId??''))throw fail(400);
+    return this.#run(hubId,async tx=>{
+      const row=(await tx.query(`UPDATE commerce.subscriptions SET cancel_at_period_end=true WHERE id=$1 AND subscriber_id=$2
+        AND status IN ('active','past_due') AND NOT cancel_at_period_end RETURNING id,psp_provider,psp_reference,current_period_end`,[subscriptionId,this.#userId])).rows[0];
+      if(!row)throw fail(409,'not_cancellable');return row;
+    });
+  }
   /** Records the provider's session reference once, on the buyer's own pending order. */
   async attachReference(hubId,orderId,provider,reference) {
     return this.#run(hubId,async tx=>{

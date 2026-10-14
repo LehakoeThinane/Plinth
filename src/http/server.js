@@ -2,7 +2,7 @@ import { createServer } from 'node:http';
 import { renderStorefront,renderProductPage,renderLessonPage,renderLibrary,renderLibraryItem,renderMembership } from './storefront.js';
 import { matchCommunityApi,matchMessagingApi,matchTierApi,matchCommerceApi } from './community-routes.js';
 import { handlePaymentWebhook } from '../modules/commerce/checkout-service.js';
-import { renderTestPayment } from './commerce-shell.js';
+import { renderTestPayment,renderTestSubscription } from './commerce-shell.js';
 async function readRaw(req,maxBytes) {
   const chunks=[];let size=0;
   for await(const chunk of req){size+=chunk.length;if(size>maxBytes)throw Object.assign(new Error('Body too large'),{status:413});chunks.push(chunk);}
@@ -18,8 +18,19 @@ async function readBinary(req) {
   return Buffer.concat(chunks);
 }
 const htmlHeaders={'content-type':'text/html; charset=utf-8','cache-control':'no-store',
-  'content-security-policy':"default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+  'content-security-policy':"default-src 'none'; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
   'x-content-type-options':'nosniff','referrer-policy':'strict-origin-when-cross-origin'};
+// Self-hosted, OFL-licensed fonts: a fixed list, so no request picks a path.
+const fontFile=(pkg,file)=>new URL(import.meta.resolve(pkg+'/files/'+file));
+const fontFiles={
+  'body-400.woff2':fontFile('@fontsource/atkinson-hyperlegible-next','atkinson-hyperlegible-next-latin-400-normal.woff2'),
+  'body-400-italic.woff2':fontFile('@fontsource/atkinson-hyperlegible-next','atkinson-hyperlegible-next-latin-400-italic.woff2'),
+  'body-600.woff2':fontFile('@fontsource/atkinson-hyperlegible-next','atkinson-hyperlegible-next-latin-600-normal.woff2'),
+  'body-700.woff2':fontFile('@fontsource/atkinson-hyperlegible-next','atkinson-hyperlegible-next-latin-700-normal.woff2'),
+  'newsreader.woff2':fontFile('@fontsource-variable/newsreader','newsreader-latin-wght-normal.woff2'),
+  'newsreader-italic.woff2':fontFile('@fontsource-variable/newsreader','newsreader-latin-wght-italic.woff2'),
+  'archivo.woff2':fontFile('@fontsource-variable/archivo','archivo-latin-wght-normal.woff2')
+};
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 async function readObject(req,maxBytes=4096) {
   req.setEncoding('utf8');
@@ -67,9 +78,19 @@ export function createApi({authenticate,accessForPrincipal,consentForPrincipal,n
         res.writeHead(200,{'content-type':'text/javascript; charset=utf-8','x-content-type-options':'nosniff','cache-control':'no-cache'});
         return res.end(script);
       }
-      const commercePage=path.match(/^\/h\/([a-z0-9-]+)\/(?:(checkout)\/([0-9a-f-]{36})\/([0-9a-f-]{36})|(orders)(?:\/([0-9a-f-]{36}))?|admin\/(sales))$/);
+      if(req.method==='GET' && path==='/assets/plinth.css') {
+        const styles=await readFile(new URL('./plinth.css',import.meta.url),'utf8');
+        res.writeHead(200,{'content-type':'text/css; charset=utf-8','x-content-type-options':'nosniff','cache-control':'no-cache'});
+        return res.end(styles);
+      }
+      const font=req.method==='GET'&&path.startsWith('/assets/fonts/')?fontFiles[path.slice(14)]:null;
+      if(font) {
+        res.writeHead(200,{'content-type':'font/woff2','x-content-type-options':'nosniff','cache-control':'public, max-age=604800'});
+        return res.end(await readFile(font));
+      }
+      const commercePage=path.match(/^\/h\/([a-z0-9-]+)\/(?:(checkout)\/([0-9a-f-]{36})\/([0-9a-f-]{36})|(orders)(?:\/([0-9a-f-]{36}))?|admin\/(sales)|(subscribe)\/([0-9a-f-]{36})|(subscriptions))$/);
       if(browserSessions && publicHubs && hubForPrincipal && ordersForPrincipal && publicCatalogue && req.method==='GET' && commercePage &&
-        [3,4,6].every(i=>!commercePage[i]||uuid.test(commercePage[i]))) {
+        [3,4,6,9].every(i=>!commercePage[i]||uuid.test(commercePage[i]))) {
         const hub=await publicHubs.resolve({slug:commercePage[1]});
         const principal=await browserSessions.principal(req);
         if(!principal) {
@@ -85,6 +106,12 @@ export function createApi({authenticate,accessForPrincipal,consentForPrincipal,n
           view='checkout';commerce={product:page.product,plan};
         } else if(commercePage[5]) {
           view=commercePage[6]?'order':'orders';commerce=commercePage[6]?{order:await orders.order(hub.id,commercePage[6])}:{orders:await orders.orders(hub.id)};
+        } else if(commercePage[8]) {
+          const tier=publicTiers?(await publicTiers.compare(hub.id)).tiers.find(t=>t.id===commercePage[9]):null;
+          if(!tier)return send(404,{error:'not_found'});
+          view='subscribe';commerce={tier};
+        } else if(commercePage[10]) {
+          view='subscriptions';commerce={subscriptions:await orders.subscriptions(hub.id),testMode:paymentProvider?.name==='test'};
         } else {view='sales';commerce={sales:await orders.sales(hub.id)};}
         const html=renderApplicationShell({hub,view,membership,commerce,consents:[],csrfToken:principal.csrfToken});
         res.writeHead(200,htmlHeaders);return res.end(html);
@@ -265,6 +292,18 @@ export function createApi({authenticate,accessForPrincipal,consentForPrincipal,n
           if(!completed)return send(404,{error:'not_found'});
           await handlePaymentWebhook({provider:paymentProvider,payments},completed.body,completed.headers);
           res.writeHead(303,{'location':completed.returnUrl,'cache-control':'no-store'});return res.end();
+        }
+      }
+      // The test provider's stored-card simulator for subscriptions (TEST MODE only).
+      const testSubscription=path.match(/^\/test-payments\/subscriptions\/(test_[0-9a-f-]{36})(?:\/(renew|fail))?$/);
+      if(paymentProvider?.name==='test' && payments && testSubscription) {
+        const subscription=paymentProvider.subscription(testSubscription[1]);
+        if(!subscription)return send(404,{error:'not_found'});
+        if(req.method==='GET' && !testSubscription[2]){res.writeHead(200,htmlHeaders);return res.end(renderTestSubscription(subscription,requestUrl.searchParams.get('outcome')));}
+        if(req.method==='POST' && testSubscription[2]) {
+          const event=paymentProvider.renew(testSubscription[1],testSubscription[2]==='renew');
+          const result=event?await handlePaymentWebhook({provider:paymentProvider,payments},event.body,event.headers):{outcome:'stopped'};
+          res.writeHead(303,{'location':'/test-payments/subscriptions/'+testSubscription[1]+'?outcome='+encodeURIComponent(result.outcome),'cache-control':'no-store'});return res.end();
         }
       }
       // Published tiers are public so visitors can compare them.

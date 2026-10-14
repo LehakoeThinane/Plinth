@@ -164,7 +164,7 @@ export async function lessonChecks({admin,db,hubId,userA,userB,companyOrg,check,
     const page=await (await fetch(base+'/h/'+slug+'/learning',{headers:{host,cookie}})).text();assert.ok(page.includes('<h1>My learning</h1>'));
     const lesson=await (await fetch(base+'/h/'+slug+'/lessons/'+paid.lessons[0],{headers:{host,cookie}})).text();
     assert.ok(lesson.includes('id="complete-lesson"'));assert.ok(lesson.includes('data-lesson-id="'+paid.lessons[0]+'"'));assert.ok(lesson.includes('plinth-shell.js'));
-    const done=await (await fetch(base+'/h/'+slug+'/lessons/'+paid.lessons[1],{headers:{host,cookie}})).text();assert.ok(done.includes('<p>Completed.</p>'));
+    const done=await (await fetch(base+'/h/'+slug+'/lessons/'+paid.lessons[1],{headers:{host,cookie}})).text();assert.ok(done.includes('<p class="done">Completed.</p>'));
     const anonymous=await (await fetch(base+'/h/'+slug+'/lessons/'+free.lessons[0])).text();assert.ok(!anonymous.includes('plinth-shell.js'));assert.ok(!anonymous.includes('data-csrf'));
   });
   const opensOf=async(user,lessonId)=>(await admin.query('SELECT id,user_agent FROM content.lesson_opens WHERE user_id=$1 AND lesson_id=$2 ORDER BY id',[user,lessonId])).rows;

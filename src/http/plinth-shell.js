@@ -205,6 +205,22 @@ document.querySelector('#start-checkout')?.addEventListener('click',async event=
   const messages={join_first:'Join this hub before buying.',already_owned:'You already have this product. Find it in My learning.',not_yet_supported:'This price type is not on sale yet.'};
   status.textContent=messages[result.error]??'Checkout could not start. Please try again.';button.disabled=false;
 });
+document.querySelector('#start-subscription')?.addEventListener('click',async event=>{
+  const button=event.currentTarget;button.disabled=true;
+  const key=button.dataset.key||(button.dataset.key=crypto.randomUUID());
+  const target=button.dataset.tierId?{tierId:button.dataset.tierId}:{planId:button.dataset.planId};
+  const response=await fetch('/v1/hubs/'+hubId+'/subscriptions',{method:'POST',credentials:'same-origin',
+    headers:{'content-type':'application/json','x-csrf-token':csrf,'idempotency-key':key},body:JSON.stringify({...target,slug})});
+  const result=await response.json().catch(()=>({}));
+  if(response.ok&&result.redirectUrl){window.location.assign(result.redirectUrl);return;}
+  if(response.ok){window.location.assign('/h/'+slug+'/subscriptions');return;}
+  const messages={join_first:'Join this hub before subscribing.',already_subscribed:'You already have this subscription.',already_owned:'You already have this product.'};
+  status.textContent=messages[result.error]??'The subscription could not start. Please try again.';button.disabled=false;
+});
+clickAll('.cancel-subscription',async b=>{
+  if(!window.confirm('Cancel this subscription? You keep access until the end of the paid period.'))return false;
+  await request('subscriptions/'+b.dataset.subscriptionId+'/cancel','POST');
+});
 clickAll('.refund-order',async b=>{
   if(!window.confirm('Refund this order in full? The buyer loses access when the provider confirms.'))return false;
   await request('catalogue/sales/'+b.dataset.orderId+'/refund','POST');
