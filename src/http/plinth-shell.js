@@ -193,16 +193,28 @@ clickAll('.tier-status',async b=>{
   if(b.dataset.action==='archive'&&!window.confirm('Archive this tier? It stops being offered and cannot be reopened.'))return false;
   await request('catalogue/tiers/'+document.querySelector('#tier-details').dataset.tierId+'/'+b.dataset.action,'POST');
 });
+// A seat purchase also names the organisation and the number of seats.
+function seatOrder() {
+  const org=document.querySelector('#seat-org'),quantity=document.querySelector('#seat-quantity');
+  return org&&quantity?{orgId:org.value,quantity:Number(quantity.value)}:{};
+}
+for(const field of document.querySelectorAll('#seat-org,#seat-quantity'))field.addEventListener('change',()=>{
+  const button=document.querySelector('#start-checkout');if(button)delete button.dataset.key;
+  const quantity=document.querySelector('#seat-quantity'),total=document.querySelector('#seat-total');
+  if(quantity&&total)total.textContent=formatRand(Number(total.dataset.unit)*Math.max(0,Math.floor(Number(quantity.value)||0)));
+});
+function formatRand(cents){return 'R'+Math.floor(cents/100).toString().replace(/B(?=(d{3})+(?!d))/g,' ')+'.'+String(cents%100).padStart(2,'0');}
 document.querySelector('#start-checkout')?.addEventListener('click',async event=>{
   const button=event.currentTarget;button.disabled=true;
   // One key per page: a double click or retry returns the same order.
   const key=button.dataset.key||(button.dataset.key=crypto.randomUUID());
   const response=await fetch('/v1/hubs/'+hubId+'/checkout',{method:'POST',credentials:'same-origin',
-    headers:{'content-type':'application/json','x-csrf-token':csrf,'idempotency-key':key},body:JSON.stringify({planId:button.dataset.planId,slug})});
+    headers:{'content-type':'application/json','x-csrf-token':csrf,'idempotency-key':key},body:JSON.stringify({planId:button.dataset.planId,slug,...seatOrder()})});
   const result=await response.json().catch(()=>({}));
   if(response.ok&&result.redirectUrl){window.location.assign(result.redirectUrl);return;}
   if(response.ok){window.location.assign('/h/'+slug+'/orders/'+result.orderId);return;}
-  const messages={join_first:'Join this hub before buying.',already_owned:'You already have this product. Find it in My learning.',not_yet_supported:'This price type is not on sale yet.'};
+  const messages={join_first:'Join this hub before buying.',already_owned:'You already have this product. Find it in My learning.',not_yet_supported:'This price type is not on sale yet.',
+    not_company_admin:'Only an administrator of that organisation can buy seats for it.',idempotency_key_reused:'You changed the order. Refresh the page and try again.'};
   status.textContent=messages[result.error]??'Checkout could not start. Please try again.';button.disabled=false;
 });
 document.querySelector('#start-subscription')?.addEventListener('click',async event=>{
@@ -268,6 +280,41 @@ for(const button of document.querySelectorAll('.unlink-method'))button.addEventL
   catch(error){status.textContent=error.message;button.disabled=false;}
 });
 formHandler('join',async form=>{await request('join','POST');await saveConsents(form,true);window.location.assign('/h/'+slug+'/member');});
+const seatMessages={no_seats_left:'All seats are in use. Take one back, or buy more seats.',not_company_member:'That person is not an active member of the organisation.',
+  member_suspended:'That person is suspended in this hub, so a seat cannot be given to them.',seats_ended:'These seats have ended.',
+  purchased_seats:'Purchased seats end only through a refund.',not_a_paid_product:'Seats can only be granted for paid products.',
+  wrong_organisation:'A company product’s seats can only go to its own organisation.',unknown_organisation:'No organisation has that ID.',
+  idempotency_key_reused:'You changed the grant. Refresh the page and try again.',not_found:'You cannot manage these seats.'};
+async function seatRequest(path,method,body,headers={}) {
+  const response=await fetch('/v1/hubs/'+hubId+'/'+path,{method,credentials:'same-origin',headers:{'content-type':'application/json','x-csrf-token':csrf,...headers},body:body===undefined?undefined:JSON.stringify(body)});
+  const result=await response.json().catch(()=>({}));
+  if(!response.ok)throw new Error(seatMessages[result.error]??'The change could not be saved. Please try again.');
+  return result;
+}
+for(const form of document.querySelectorAll('form.assign-seat'))form.addEventListener('submit',async event=>{
+  event.preventDefault();const button=form.querySelector('button');button.disabled=true;
+  try{await seatRequest('seat-pools/'+form.dataset.poolId+'/assignments','POST',{userId:form.elements.userId.value});window.location.reload();}
+  catch(error){status.textContent=error.message;button.disabled=false;}
+});
+clickAll('.revoke-seat',async b=>{
+  if(!window.confirm('Take this seat back? '+b.dataset.name+' loses access straight away.'))return false;
+  await seatRequest('seat-pools/'+b.dataset.poolId+'/assignments/'+b.dataset.userId,'DELETE');
+});
+clickAll('.end-pool',async b=>{
+  if(!window.confirm('End this grant? Everyone holding one of its seats loses access straight away.'))return false;
+  await seatRequest('catalogue/seat-grants/'+b.dataset.poolId+'/end','POST');
+});
+// A company product's seats can only go to its own organisation, so fill it in.
+{const grant=document.querySelector('#grant-seats');const fill=()=>{const chosen=grant.elements.productId.selectedOptions[0];
+  if(chosen?.dataset.org){grant.elements.orgId.value=chosen.dataset.org;grant.elements.orgId.readOnly=true;}else if(grant.elements.orgId.readOnly){grant.elements.orgId.value='';grant.elements.orgId.readOnly=false;}};
+  if(grant?.elements.productId){grant.elements.productId.addEventListener('change',fill);fill();}}
+formHandler('grant-seats',async form=>{
+  // One key per page load: a double submit returns the same grant.
+  const key=form.dataset.key||(form.dataset.key=crypto.randomUUID());
+  const data=new FormData(form);
+  await seatRequest('catalogue/seat-grants','POST',{orgId:data.get('orgId').trim(),productId:data.get('productId'),seats:Number(data.get('seats')),reference:data.get('reference')},{'idempotency-key':key});
+  window.location.reload();
+});
 document.querySelector('#logout')?.addEventListener('click',async()=>{
   try{await request('session','DELETE');window.location.assign('/h/'+slug);}catch(error){status.textContent=error.message;}
 });

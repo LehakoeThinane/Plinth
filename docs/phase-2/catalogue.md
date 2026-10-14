@@ -34,7 +34,7 @@ concurrent retirements cannot both succeed.
 
 `visibility: company` with an existing `companyOrg` creates a product inside
 that organisation's boundary. Its access mode is always `entitled` (access
-comes from seat grants, a later slice) and the database refuses prices for it.
+comes from seat grants; see [company seats](seats.md)) and the database refuses prices for it.
 Row-level security hides it, its modules, lessons and plans from anyone outside
 that organisation, except hub staff.
 

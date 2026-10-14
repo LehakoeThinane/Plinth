@@ -1,5 +1,6 @@
 import { escapeText as e,hubBar,plinthFooter } from './storefront.js';
 import { head,when,badge } from './ui.js';
+import { renderCompanySeats,renderSeatAdmin } from './seat-shell.js';
 import { renderOrganisations } from './organisation-shell.js';
 import { renderAccount } from './account-shell.js';
 import { renderProducts,renderProductEditor } from './catalogue-shell.js';
@@ -9,7 +10,7 @@ import { renderCommunity,renderSpace,renderPostPage,renderCommunityAdmin } from 
 import { renderEnquiries,renderEnquiry } from './enquiry-shell.js';
 import { renderTiers,renderTierEditor } from './tier-shell.js';
 import { renderCheckout,renderOrders,renderOrder,renderSales,renderSubscribe,renderSubscriptions } from './commerce-shell.js';
-export function renderApplicationShell({hub,view,membership,consents,csrfToken,account,signIn,organisation,orgDomains,catalogue,learning,community,enquiries,commerce,publications=[],olderNotices=null,brandingEnabled=false,domains}) {
+export function renderApplicationShell({hub,view,membership,consents,csrfToken,account,signIn,organisation,orgDomains,catalogue,learning,community,enquiries,commerce,seats,publications=[],olderNotices=null,brandingEnabled=false,domains}) {
   // Retired purposes are no longer offered; their old grants are inactive.
   const choices=consents.filter(c=>!c.retired).map(c=>`<label class="choice"><input type="checkbox" name="${e(c.purpose)}" data-purpose="${e(c.purpose)}" data-version="${e(c.notice_version)}"${c.granted?' checked':''}>
     <span><strong>${e(c.purpose.replaceAll('_',' '))}</strong><br>${e(c.notice_text)}</span></label>`).join('');
@@ -28,7 +29,7 @@ export function renderApplicationShell({hub,view,membership,consents,csrfToken,a
   const domainAdmin=domains?`<section><h2>Custom domain ownership</h2><p class="muted">Verify DNS ownership here. HTTPS and domain activation are arranged separately.</p>
     <form id="domain-request"><label>Hostname<input name="hostname" maxlength="232" placeholder="learn.yourcompany.co.za" required></label><button>Create or replace DNS proof</button></form>
     <p id="domain-proof" role="status"></p><ul class="rows">${domains.claims.map(d=>`<li><p class="meta"><strong>${e(d.hostname)}</strong>${badge('pending','Waiting for DNS')}<span>proof expires ${when(d.expires_at)}</span></p><p class="actions"><button class="verify-domain" data-hostname="${e(d.hostname)}">Check DNS</button><button class="remove-domain" data-hostname="${e(d.hostname)}">Remove</button></p></li>`).join('')}${domains.verified.map(d=>`<li><p class="meta"><strong>${e(d.hostname)}</strong>${badge('active','Ownership verified')}</p><p class="actions"><button class="remove-domain" data-hostname="${e(d.hostname)}">Remove</button></p></li>`).join('')}</ul></section>`:'';
-  const content=view==='subscribe'?renderSubscribe({hub,tier:commerce.tier}):view==='subscriptions'?renderSubscriptions({hub,...commerce}):view==='checkout'?renderCheckout({hub,...commerce}):view==='orders'?renderOrders({hub,orders:commerce.orders}):
+  const content=view==='seats'?renderCompanySeats({hub,seats}):view==='seat-admin'?renderSeatAdmin({hub,seats}):view==='subscribe'?renderSubscribe({hub,tier:commerce.tier}):view==='subscriptions'?renderSubscriptions({hub,...commerce}):view==='checkout'?renderCheckout({hub,...commerce}):view==='orders'?renderOrders({hub,orders:commerce.orders}):
     view==='order'?renderOrder({hub,order:commerce.order}):view==='sales'?renderSales({hub,sales:commerce.sales}):view==='tiers'?renderTiers({hub,tiers:catalogue.tiers}):view==='tier'?renderTierEditor({hub,tier:catalogue.tier,candidates:catalogue.candidates}):
     view==='enquiries'?renderEnquiries({hub,inbox:enquiries.inbox}):view==='enquiry'?renderEnquiry({hub,thread:enquiries.thread,userId:enquiries.userId}):
     view==='community'?renderCommunity({hub,spaces:community.spaces}):view==='space'?renderSpace({hub,space:community.space,feed:community.feed,userId:community.userId}):
@@ -55,11 +56,11 @@ export function renderApplicationShell({hub,view,membership,consents,csrfToken,a
   const nav=link('','Courses','shelf')+link('/learning','My learning','learning')+link('/community','Community','community')+
     link('/library','Library','library-public')+link('/enquiries','Enquiries','enquiries')+(admin?link('/admin','Manage hub','manage'):'')+
     `<details class="account"><summary>Account</summary><div class="menu">${link('/member','Member area','member')}${link('/orders','Orders','orders')}
-    ${link('/subscriptions','Subscriptions','subscriptions')}${link('/organisations','Organisations','organisations')}${link('/account','Sign-in methods','account')}
+    ${link('/subscriptions','Subscriptions','subscriptions')}${link('/seats','Company seats','seats')}${link('/organisations','Organisations','organisations')}${link('/account','Sign-in methods','account')}
     ${link('/create-hub','Create a hub','create-hub')}<hr><button type="button" id="logout">Sign out</button></div></details>`;
   const consoleNav=admin&&adminArea[view]?`<nav class="sidenav" aria-label="Manage ${e(hub.display_name)}"><span class="eyebrow">Manage hub</span>
     ${[['/admin','Branding and notices','branding'],['/admin/products','Products','products'],['/admin/library','Library','library'],['/admin/tiers','Membership tiers','tiers'],
-      ['/admin/community','Community','moderation'],['/admin/sales','Sales','sales'],['/enquiries','Enquiries inbox','inbox']].map(([href,label,key])=>link(href,label,key)).join('')}</nav>`:'';
+      ['/admin/community','Community','moderation'],['/admin/seats','Company seats','seat-admin'],['/admin/sales','Sales','sales'],['/enquiries','Enquiries inbox','inbox']].map(([href,label,key])=>link(href,label,key)).join('')}</nav>`:'';
   const status='<p id="status" role="status" aria-live="polite"></p>';
   return `${head({title:(titles[view]??view)+' · '+hub.display_name,hub,script:true})}
 <body data-hub-id="${e(hub.id)}" data-slug="${e(hub.slug)}" data-csrf="${e(csrfToken)}" data-org-id="${e(organisation?.organisation.id)}" data-product-id="${e(catalogue?.detail?.product.id)}">
@@ -67,9 +68,9 @@ ${hubBar(hub,nav)}<main id="main">${consoleNav?`<div class="wrap console">${cons
   `<div class="wrap page"><div class="content">${content}${status}</div></div>`}</main>${plinthFooter(hub)}</body></html>`;
 }
 // Which navigation entry each view belongs to.
-const adminArea={admin:'branding',products:'products',product:'products',library:'library','library-item':'library',tiers:'tiers',tier:'tiers','community-admin':'moderation',sales:'sales'};
+const adminArea={admin:'branding',products:'products',product:'products',library:'library','library-item':'library',tiers:'tiers',tier:'tiers','community-admin':'moderation',sales:'sales','seat-admin':'seat-admin'};
 const memberArea={learning:'learning',community:'community',space:'community',post:'community',enquiries:'enquiries',enquiry:'enquiries',member:'member',join:'member',
-  orders:'orders',order:'orders',subscriptions:'subscriptions',subscribe:'subscriptions',checkout:'shelf',organisations:'organisations',account:'account','create-hub':'create-hub'};
+  orders:'orders',order:'orders',subscriptions:'subscriptions',subscribe:'subscriptions',seats:'seats',checkout:'shelf',organisations:'organisations',account:'account','create-hub':'create-hub'};
 const titles={admin:'Manage hub',products:'Products',product:'Product',library:'Library','library-item':'Library item',tiers:'Membership tiers',tier:'Tier','community-admin':'Community moderation',
   sales:'Sales',learning:'My learning',community:'Community',space:'Community',post:'Post',enquiries:'Enquiries',enquiry:'Enquiry',member:'Member area',join:'Join',orders:'Orders',order:'Order',
-  subscriptions:'Subscriptions',subscribe:'Subscribe',checkout:'Checkout',organisations:'Organisations',account:'Sign-in methods','create-hub':'Create a hub'};
+  subscriptions:'Subscriptions',subscribe:'Subscribe',seats:'Company seats','seat-admin':'Company seats',checkout:'Checkout',organisations:'Organisations',account:'Sign-in methods','create-hub':'Create a hub'};

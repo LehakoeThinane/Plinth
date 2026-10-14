@@ -25,6 +25,7 @@ import { CommunityService } from './modules/community/community-service.js';
 import { MessagingRepository } from './db/messaging-repository.js';
 import { TierRepository } from './db/tier-repository.js';
 import { CommerceRepository,PaymentsRepository } from './db/commerce-repository.js';
+import { SeatRepository } from './db/seat-repository.js';
 import { CheckoutService } from './modules/commerce/checkout-service.js';
 /** Composition root: infrastructure is injected and owned by the caller. */
 export function createApplication({pool,authenticate,browserSessions,hostedSignIn,accountLinks,brandingStore,domainVerificationPool,resolveDomainTxt,paymentProvider,paymentsPool,cache=new MemoryAccessCache(),onError}) {
@@ -40,7 +41,7 @@ export function createApplication({pool,authenticate,browserSessions,hostedSignI
     communityForPrincipal:principal=>new CommunityService({access:new AccessService(new PostgresAccessRepository(database,principal.userId),cache),userId:principal.userId}),
     moderationForPrincipal:principal=>new CommunityRepository(database,principal.userId),
     messagingForPrincipal:principal=>new MessagingRepository(database,principal.userId),
-    tierForPrincipal:principal=>new TierRepository(database,principal.userId),publicTiers:new TierRepository(database),
+    tierForPrincipal:principal=>new TierRepository(database,principal.userId),seatsForPrincipal:principal=>new SeatRepository(database,principal.userId),publicTiers:new TierRepository(database),
     // Commerce needs both a payment provider adapter and the payments database login.
     ...(paymentProvider&&paymentsPool?{paymentProvider,payments:new PaymentsRepository(paymentsPool),
       ordersForPrincipal:principal=>new CommerceRepository(database,principal.userId),

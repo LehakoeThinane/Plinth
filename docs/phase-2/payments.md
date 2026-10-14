@@ -11,8 +11,9 @@ money or credentials are involved.
    and returns the provider's payment page. The same key with the same plan
    returns the same order; with a different plan it is `409
    idempotency_key_reused`. Other refusals: `join_first`, `already_owned`,
-   `not_yet_supported` (subscriptions and per-seat prices), 404 for unpublished,
-   company or retired plans.
+   `not_yet_supported` (subscription prices, which use their own route), 404 for unpublished,
+   company or retired plans. Adding `{orgId, quantity}` buys seats at a per-seat
+   price for an organisation; see [company seats](seats.md).
 2. **Pay**: the buyer approves or declines on the provider's page (TEST MODE).
 3. **Webhook**: the provider's signed event reaches
    `POST /v1/webhooks/payments/{provider}`. The signature is verified before
@@ -97,5 +98,5 @@ duplicate. Before, any uniqueness failure inside the payment function was report
 ## Not yet built
 
 VAT (needs providers' VAT registration and invoices), chargebacks, partial refunds, the 15-minute reconciliation job, settlement import,
-upgrades/downgrades, per-seat purchases and seat assignment,
+upgrades/downgrades,
 receipts by email, and a real provider adapter.

@@ -4,8 +4,10 @@
 export class CheckoutService {
   #orders;#provider;#payments;
   constructor({orders,provider,payments}) {this.#orders=orders;this.#provider=provider;this.#payments=payments;}
-  async checkout(hubId,{planId,idempotencyKey,returnUrlFor}) {
-    const order=await this.#orders.createOrder(hubId,{planId,idempotencyKey});
+  async checkout(hubId,{planId,idempotencyKey,returnUrlFor,seats=null}) {
+    // Seat purchases name the organisation and how many seats it is buying.
+    const order=seats?await this.#orders.createSeatOrder(hubId,{planId,orgId:seats.orgId,quantity:seats.quantity,idempotencyKey}):
+      await this.#orders.createOrder(hubId,{planId,idempotencyKey});
     // A retried checkout returns the same order and payment page.
     if(order.psp_reference)return {orderId:order.id,status:order.status,redirectUrl:this.#provider.redirectUrl(order.psp_reference)};
     if(order.status!=='pending')return {orderId:order.id,status:order.status,redirectUrl:null};

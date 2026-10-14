@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import { renderStorefront,renderProductPage,renderLessonPage,renderLibrary,renderLibraryItem,renderMembership } from './storefront.js';
-import { matchCommunityApi,matchMessagingApi,matchTierApi,matchCommerceApi } from './community-routes.js';
+import { matchCommunityApi,matchMessagingApi,matchTierApi,matchCommerceApi,matchSeatApi } from './community-routes.js';
 import { handlePaymentWebhook } from '../modules/commerce/checkout-service.js';
 import { renderTestPayment,renderTestSubscription } from './commerce-shell.js';
 async function readRaw(req,maxBytes) {
@@ -48,7 +48,7 @@ async function readObject(req,maxBytes=4096) {
  * No default authenticator, development header override or public token issuer.
  * This endpoint returns an ACCESS DECISION only, never media/content.
  */
-export function createApi({authenticate,accessForPrincipal,consentForPrincipal,noticeForPrincipal,hubForPrincipal,identityForPrincipal,organisationForPrincipal,logoForPrincipal,brandingStore,domainForPrincipal,orgDomainsForPrincipal,catalogueForPrincipal,publicCatalogue,learningForPrincipal,libraryForPrincipal,communityForPrincipal,moderationForPrincipal,messagingForPrincipal,tierForPrincipal,publicTiers,checkoutForPrincipal,ordersForPrincipal,paymentProvider,payments,publicHubs,browserSessions,hostedSignIn,accountLinks,onError=()=>{}}) {
+export function createApi({authenticate,accessForPrincipal,consentForPrincipal,noticeForPrincipal,hubForPrincipal,identityForPrincipal,organisationForPrincipal,logoForPrincipal,brandingStore,domainForPrincipal,orgDomainsForPrincipal,catalogueForPrincipal,publicCatalogue,learningForPrincipal,libraryForPrincipal,communityForPrincipal,moderationForPrincipal,messagingForPrincipal,tierForPrincipal,publicTiers,seatsForPrincipal,checkoutForPrincipal,ordersForPrincipal,paymentProvider,payments,publicHubs,browserSessions,hostedSignIn,accountLinks,onError=()=>{}}) {
   if(typeof authenticate!=='function'||typeof accessForPrincipal!=='function')throw Error('Verified authentication adapter required');
   return createServer(async(req,res)=>{
     const send=(status,body)=>{res.writeHead(status,{'content-type':'application/json','cache-control':'no-store'});res.end(JSON.stringify(body));};
@@ -103,7 +103,8 @@ export function createApi({authenticate,accessForPrincipal,consentForPrincipal,n
         if(commercePage[2]) {
           const page=await publicCatalogue.page(hub.id,commercePage[3]),plan=page.plans.find(p=>p.id===commercePage[4]);
           if(!plan)return send(404,{error:'not_found'});
-          view='checkout';commerce={product:page.product,plan};
+          // Seat prices are bought by a company admin for one of their organisations.
+          view='checkout';commerce={product:page.product,plan,companies:plan.model==='per_seat'&&seatsForPrincipal?await seatsForPrincipal(principal).companies(hub.id):[]};
         } else if(commercePage[5]) {
           view=commercePage[6]?'order':'orders';commerce=commercePage[6]?{order:await orders.order(hub.id,commercePage[6])}:{orders:await orders.orders(hub.id)};
         } else if(commercePage[8]) {
@@ -115,6 +116,26 @@ export function createApi({authenticate,accessForPrincipal,consentForPrincipal,n
         } else {view='sales';commerce={sales:await orders.sales(hub.id)};}
         const html=renderApplicationShell({hub,view,membership,commerce,consents:[],csrfToken:principal.csrfToken});
         res.writeHead(200,htmlHeaders);return res.end(html);
+      }
+      const seatPage=path.match(/^\/h\/([a-z0-9-]+)\/(admin\/)?seats$/);
+      if(browserSessions && publicHubs && hubForPrincipal && seatsForPrincipal && req.method==='GET' && seatPage) {
+        const hub=await publicHubs.resolve({slug:seatPage[1]});
+        const principal=await browserSessions.principal(req);
+        if(!principal) {
+          if(hostedSignIn){res.writeHead(303,{'location':'/h/'+hub.slug+'/sign-in?view='+(seatPage[2]?'admin':'member'),'cache-control':'no-store'});return res.end();}
+          return send(401,{error:'unauthenticated'});
+        }
+        if(principal.hubId!==hub.id)return send(404,{error:'not_found'});
+        const membership=await hubForPrincipal(principal).membership(hub.id).catch(error=>{if(error.status===404)return null;throw error;});
+        const seats=seatsForPrincipal(principal);let view,seatView;
+        if(seatPage[2]) {
+          view='seat-admin';seatView={overview:await seats.overview(hub.id,null),products:catalogueForPrincipal?(await catalogueForPrincipal(principal).list(hub.id)).filter(p=>p.access_mode==='entitled'):[]};
+        } else {
+          const companies=await seats.companies(hub.id),chosen=requestUrl.searchParams.get('org');
+          const org=companies.find(c=>c.id===chosen)??companies[0]??null;
+          view='seats';seatView={companies,org,overview:org?await seats.overview(hub.id,org.id):null};
+        }
+        res.writeHead(200,htmlHeaders);return res.end(renderApplicationShell({hub,view,membership,seats:seatView,consents:[],csrfToken:principal.csrfToken}));
       }
       const enquiryPage=path.match(/^\/h\/([a-z0-9-]+)\/enquiries(?:\/([0-9a-f-]{36}))?$/);
       if(browserSessions && publicHubs && hubForPrincipal && messagingForPrincipal && req.method==='GET' && enquiryPage && (!enquiryPage[2]||uuid.test(enquiryPage[2]))) {
@@ -338,6 +359,7 @@ export function createApi({authenticate,accessForPrincipal,consentForPrincipal,n
       const messagingRoute=messagingForPrincipal?matchMessagingApi(path,req.method):null;
       const tierRoute=tierForPrincipal?matchTierApi(path,req.method):null;
       const commerceRoute=checkoutForPrincipal&&ordersForPrincipal?matchCommerceApi(path,req.method):null;
+      const seatRoute=seatsForPrincipal?matchSeatApi(path,req.method):null;
       const libraryAdmin=path.match(/^\/v1\/hubs\/([0-9a-f-]{36})\/catalogue\/library(?:\/([0-9a-f-]{36})(?:\/(publish|archive))?)?$/);
       const libraryAdminRoute=libraryForPrincipal && libraryAdmin && uuid.test(libraryAdmin[1]) && (!libraryAdmin[2]||uuid.test(libraryAdmin[2])) &&
         (!libraryAdmin[2]?['GET','POST'].includes(req.method):!libraryAdmin[3]?['GET','PATCH'].includes(req.method):req.method==='POST');
@@ -364,12 +386,12 @@ export function createApi({authenticate,accessForPrincipal,consentForPrincipal,n
       const createHub=hubForPrincipal && path==='/v1/hubs' && req.method==='POST';
       const hubRoute=hubForPrincipal && hubAction && uuid.test(hubAction[1]) &&
         req.method===({join:'POST',membership:'GET',branding:'PUT'})[hubAction[2]];
-      if(!commerceRoute && !tierRoute && !messagingRoute &&!communityRoute &&!libraryAdminRoute && !progressRoute && !learningRoute && !catalogueRoute && !domainRoute &&!orgDomainRoute &&!logoRoute && !noticeRoute && !readAccount && !linkRoute && !orgRoute &&!sessionRoute && !createHub && !hubRoute && !consentRoute && (req.method!=='GET'||!match||!uuid.test(match[1])||!uuid.test(match[2])))return send(404,{error:'not_found'});
+      if(!seatRoute && !commerceRoute && !tierRoute && !messagingRoute &&!communityRoute &&!libraryAdminRoute && !progressRoute && !learningRoute && !catalogueRoute && !domainRoute &&!orgDomainRoute &&!logoRoute && !noticeRoute && !readAccount && !linkRoute && !orgRoute &&!sessionRoute && !createHub && !hubRoute && !consentRoute && (req.method!=='GET'||!match||!uuid.test(match[1])||!uuid.test(match[2])))return send(404,{error:'not_found'});
       const bearer=req.headers.authorization?.match(/^Bearer ([^\s]+)$/)?.[1];
       if(req.headers.authorization && !bearer)return send(401,{error:'unauthenticated'});
       const principal=bearer?await authenticate(bearer):await browserSessions?.principal(req);
       if(!principal||!uuid.test(principal.userId??''))return send(401,{error:'unauthenticated'});
-      const targetHub=commerceRoute?commerceRoute.hubId:tierRoute?tierRoute.hubId:messagingRoute?messagingRoute.hubId:communityRoute?communityRoute.hubId:libraryAdminRoute?libraryAdmin[1]:progressRoute?progress[1]:learningRoute?learning[1]:catalogueRoute?catalogue[1]:domainRoute?domain[1]:orgDomainRoute?orgDomain[1]:logoRoute?logo[1]:noticeRoute?notice[1]:readAccount?accountRoute[1]:linkRoute?links[1]:orgRoute?org[1]:sessionRoute?sessionAction[1]:hubRoute?hubAction[1]:consentRoute?consent[1]:match?.[1];
+      const targetHub=seatRoute?seatRoute.hubId:commerceRoute?commerceRoute.hubId:tierRoute?tierRoute.hubId:messagingRoute?messagingRoute.hubId:communityRoute?communityRoute.hubId:libraryAdminRoute?libraryAdmin[1]:progressRoute?progress[1]:learningRoute?learning[1]:catalogueRoute?catalogue[1]:domainRoute?domain[1]:orgDomainRoute?orgDomain[1]:logoRoute?logo[1]:noticeRoute?notice[1]:readAccount?accountRoute[1]:linkRoute?links[1]:orgRoute?org[1]:sessionRoute?sessionAction[1]:hubRoute?hubAction[1]:consentRoute?consent[1]:match?.[1];
       if(principal.sessionHash && targetHub && principal.hubId!==targetHub)return send(404,{error:'not_found'});
       if(principal.sessionHash && !['GET','HEAD'].includes(req.method))browserSessions.checkMutation(req,principal);
       if(domainRoute) {
@@ -386,6 +408,12 @@ export function createApi({authenticate,accessForPrincipal,consentForPrincipal,n
         try {
           const result=await commerceRoute.run({checkout:checkoutForPrincipal(principal),orders:ordersForPrincipal(principal),headers:req.headers,
             query:requestUrl.searchParams,body:()=>readObject(req),resolveSlug:slug=>publicHubs.resolve({slug})});
+          return send(result.status,result.body);
+        }catch(error){if(error.status&&error.code)return send(error.status,{error:error.code});throw error;}
+      }
+      if(seatRoute) {
+        try {
+          const result=await seatRoute.run({seats:seatsForPrincipal(principal),headers:req.headers,query:requestUrl.searchParams,body:()=>readObject(req)});
           return send(result.status,result.body);
         }catch(error){if(error.status&&error.code)return send(error.status,{error:error.code});throw error;}
       }
