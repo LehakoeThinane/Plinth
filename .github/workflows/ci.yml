@@ -51,6 +51,8 @@ jobs:
       - run: psql -h localhost -U plinth_admin -d plinth -v ON_ERROR_STOP=1 -f db/migrations/012-domain-verification.sql
       - run: psql -h localhost -U plinth_admin -d plinth -v ON_ERROR_STOP=1 -f db/migrations/013-account-links.sql
       - run: psql -h localhost -U plinth_admin -d plinth -v ON_ERROR_STOP=1 -f db/migrations/014-organisation-domains.sql
+      - run: psql -h localhost -U plinth_admin -d plinth -v ON_ERROR_STOP=1 -f db/migrations/015-notice-retirement.sql
+      - run: psql -h localhost -U plinth_admin -d plinth -v ON_ERROR_STOP=1 -f db/migrations/016-catalogue.sql
       - run: npm test
       - run: npm run test:tenant
       - run: npm run test:http

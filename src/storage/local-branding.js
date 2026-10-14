@@ -1,4 +1,4 @@
-import { mkdir,writeFile,readFile,unlink,lstat } from 'node:fs/promises';
+import { mkdir,writeFile,readFile,unlink,lstat,readdir } from 'node:fs/promises';
 import { resolve,join } from 'node:path';
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 /** Private development storage, outside the HTTP static root.
@@ -27,5 +27,23 @@ export class LocalBrandingStore {
   }
   async delete(hubId,id) {
     try{await unlink(this.#path(hubId,id));}catch(error){if(error.code!=='ENOENT')throw error;}
+  }
+  // Listing is for the operator garbage collector only; HTTP never lists storage.
+  async hubs() {
+    return (await this.#entries(join(this.#root,'hubs'))).filter(e=>e.isDirectory()&&uuid.test(e.name)).map(e=>e.name);
+  }
+  async list(hubId) {
+    if(!uuid.test(hubId))throw Error('Invalid branding storage key');
+    const objects=[];
+    for(const entry of await this.#entries(join(this.#root,'hubs',hubId,'branding'))) {
+      const id=entry.name.slice(0,-'.webp'.length);
+      if(!entry.isFile()||!entry.name.endsWith('.webp')||!uuid.test(id))continue;
+      const stat=await lstat(this.#path(hubId,id)).catch(error=>{if(error.code==='ENOENT')return null;throw error;});
+      if(stat?.isFile())objects.push({id,modifiedAt:stat.mtime});
+    }
+    return objects;
+  }
+  async #entries(directory) {
+    try{return await readdir(directory,{withFileTypes:true});}catch(error){if(error.code==='ENOENT')return [];throw error;}
   }
 }

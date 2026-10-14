@@ -24,6 +24,8 @@ services:
       - ./db/migrations/012-domain-verification.sql:/docker-entrypoint-initdb.d/12-domain-verification.sql:ro
       - ./db/migrations/013-account-links.sql:/docker-entrypoint-initdb.d/13-account-links.sql:ro
       - ./db/migrations/014-organisation-domains.sql:/docker-entrypoint-initdb.d/14-organisation-domains.sql:ro
+      - ./db/migrations/015-notice-retirement.sql:/docker-entrypoint-initdb.d/15-notice-retirement.sql:ro
+      - ./db/migrations/016-catalogue.sql:/docker-entrypoint-initdb.d/16-catalogue.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U plinth_admin -d plinth"]
       interval: 5s

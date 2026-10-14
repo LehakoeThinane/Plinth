@@ -14,6 +14,7 @@
     "test:domain": "node --test test/domain.test.js",
     "test:db:embedded": "node test/run-embedded.js",
     "dev": "node scripts/dev.js",
+    "logos:gc": "node --env-file-if-exists=.env scripts/collect-logos.js",
     "test:architecture": "node --test test/architecture.test.js",
     "verify": "npm test && npm run test:tenant && npm run test:http && npm run test:auth && npm run test:hosted-auth && npm run test:architecture && npm run test:notice-migration && npm run test:logo && npm run test:domain && npm run test:db:embedded"
   },

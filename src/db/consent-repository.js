@@ -13,8 +13,8 @@ export class ConsentRepository {
   }
   async list(hubId) {
     return this.#db.withSnapshot(this.#context(hubId), async tx =>
-      (await tx.query(`SELECT p.purpose,p.notice_version,p.notice_text,
-        coalesce(c.granted AND c.notice_version=p.notice_version,false) AS granted,c.changed_at
+      (await tx.query(`SELECT p.purpose,p.notice_version,p.notice_text,p.retired_at IS NOT NULL AS retired,
+        coalesce(c.granted AND c.notice_version=p.notice_version AND p.retired_at IS NULL,false) AS granted,c.changed_at
         FROM compliance.consent_purposes p
         LEFT JOIN compliance.consents c ON c.hub_id=p.hub_id AND c.purpose=p.purpose
         ORDER BY p.purpose`)).rows);
@@ -28,10 +28,11 @@ export class ConsentRepository {
     try{return await this.#db.withSnapshot(this.#context(hubId), async tx => {
       if (granted && !(await tx.query('SELECT app.is_active_member() AS active')).rows[0].active)
         throw Object.assign(new Error('Not found'), { status: 404 });
-      const result = await tx.query(`SELECT notice_version FROM compliance.consent_purposes
+      const result = await tx.query(`SELECT notice_version,retired_at FROM compliance.consent_purposes
         WHERE purpose=$1`, [purpose]);
       if (!result.rows.length) throw Object.assign(new Error('Not found'), { status: 404 });
-      if (result.rows[0].notice_version !== noticeVersion)
+      // A retired purpose still accepts withdrawal, never a new grant.
+      if (result.rows[0].notice_version !== noticeVersion || (granted && result.rows[0].retired_at))
         throw Object.assign(new Error('Consent notice changed'), { status: 409 });
       return (await tx.query(`INSERT INTO compliance.consents
         (hub_id,user_id,purpose,granted,notice_version) VALUES ($1,$2,$3,$4,$5)

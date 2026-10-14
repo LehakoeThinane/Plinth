@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import sharp from 'sharp';
 import { randomUUID } from 'node:crypto';
+import { HubRepository } from '../src/db/hub-repository.js';
+import { collectLogos,logoGracePeriodMs } from '../src/modules/tenancy/logo-collector.js';
 export async function logoChecks({admin,app,db,hubId,otherHub,userA,check,base,fetch,store,slug,embeddedMode}) {
   const url=base+'/v1/hubs/'+hubId+'/branding/logo';
   const bytes=await sharp({create:{width:800,height:400,channels:4,background:'blue'}}).png().toBuffer();
   const headers={authorization:'Bearer learner-a','content-type':'image/png'};
-  let first,second;
+  let first,second,unpublished;
   await check('branding reader has only narrow function authority and runtime cannot assume its role',async()=>{
     assert.deepEqual((await admin.query("SELECT rolcanlogin,rolsuper,rolbypassrls FROM pg_roles WHERE rolname='plinth_branding_reader'")).rows[0],{rolcanlogin:false,rolsuper:false,rolbypassrls:false});
     assert.equal((await admin.query("SELECT pg_has_role('plinth_app','plinth_branding_reader','MEMBER') AS member")).rows[0].member,false);
@@ -45,10 +47,27 @@ export async function logoChecks({admin,app,db,hubId,otherHub,userA,check,base,f
   });
   await check('only the current pointer is public; replaced, removed and unpublished files return 404',async()=>{
     assert.equal((await fetch(base+first)).status,404);assert.equal((await fetch(base+second)).status,200);
-    const unpublished=randomUUID();await store.put(hubId,unpublished,await sharp(bytes).webp().toBuffer());
+    unpublished=randomUUID();await store.put(hubId,unpublished,await sharp(bytes).webp().toBuffer());
     assert.equal((await fetch(base+'/assets/hubs/'+hubId+'/branding/'+unpublished+'.webp')).status,404);
     assert.equal((await fetch(base+second.replace(hubId,otherHub))).status,404);
     assert.equal((await fetch(url,{method:'DELETE',headers:{authorization:'Bearer learner-a'}})).status,200);
     assert.equal((await fetch(base+second)).status,404);
+  });
+  await check('logo collector removes replaced, removed and unpublished objects but keeps current and in-flight logos',async()=>{
+    const current=(await (await fetch(url,{method:'PUT',headers,body:bytes})).json()).logoPath,key=path=>path.split('/').pop().slice(0,-'.webp'.length);
+    const inflight=randomUUID();await store.put(hubId,inflight,await sharp(bytes).webp().toBuffer());
+    // Age everything except the in-flight upload past the grace period.
+    const aged={hubs:()=>store.hubs(),delete:(h,id)=>store.delete(h,id),
+      list:async h=>(await store.list(h)).map(o=>o.id===inflight?o:{...o,modifiedAt:new Date(o.modifiedAt.getTime()-2*logoGracePeriodMs)})};
+    const hubs=new HubRepository(db),isPublishedLogo=(h,file)=>hubs.isPublishedLogo(h,file);
+    const stale=[key(first),key(second),unpublished].sort();
+    const dry=await collectLogos({store:aged,isPublishedLogo});
+    assert.deepEqual(dry.removed.filter(r=>r.hubId===hubId).map(r=>r.id).sort(),stale);assert.equal(dry.recent,1);
+    for(const id of stale)assert.ok(await store.read(hubId,id));
+    await collectLogos({store:aged,isPublishedLogo,apply:true});
+    for(const id of stale)assert.equal(await store.read(hubId,id),null);
+    assert.ok(await store.read(hubId,inflight));assert.ok(await store.read(hubId,key(current)));
+    assert.equal((await fetch(base+current)).status,200);
+    assert.deepEqual((await store.list(hubId)).map(o=>o.id).sort(),[inflight,key(current)].sort());
   });
 }

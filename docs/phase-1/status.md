@@ -304,20 +304,58 @@ takeover attempts, member visibility, HTTP/CSRF and prefix separation. Real
 public DNS is not exercised. Apply migration 014 after 013 on existing databases.
 See [organisation setup](organisations.md#organisation-domains).
 
+## Twelfth implemented slice: notice retirement and history paging
+
+Hub admins can retire a consent purpose from the admin screen or
+`POST /v1/hubs/{hub}/notices/retire`. Retired purposes are hidden from members and
+joiners, their grants become inactive, and new grants are refused while
+withdrawal still works. Republishing needs a new version and never revives old
+grants. Notice history now combines publications and retirements with keyset
+paging (`before`/`limit`), so complete history is reachable.
+
+Migration 015 adds retirement stamps and a forced-RLS retirement history written
+by the consent executor's audit trigger; the policy audit covers it. Runtime can
+set only `retired_at`, cannot undo a retirement in place or forge history.
+
+Validation: `npm run verify` passed 173 checks; the full PostgreSQL 17 suite
+passed 106 checks (five new) on three consecutive runs. A test-cleanup ordering
+bug found along the way was fixed. Apply migration 015 after 014 on existing
+databases. See [notice publishing](notices.md).
+
+## Thirteenth implemented slice: logo garbage collection
+
+`npm run logos:gc` removes stored logo objects that are not their hub's current
+logo and are older than a one-hour grace period, which protects in-flight
+uploads. It is a dry run unless `--apply` is given, and reuses the existing
+`app.is_published_logo` check, so it needs no new database authority. The
+storage adapter gained operator-only listing; HTTP still never lists storage.
+
+Validation: `npm run verify` passed 176 checks; the full PostgreSQL 17 suite
+passed 107 checks on three consecutive runs. Coverage includes current, replaced,
+removed, unpublished, in-flight and other-hub objects, dry run versus apply,
+grace-period validation and invalid storage entries. No migration is needed.
+See [branding setup](branding.md#garbage-collection).
+
+## Account setup on hold
+
+Auth0 (EU region) was selected as the login provider and AWS staging account
+steps were prepared on 13 October 2026; both are paused until the account owner
+completes them. See [Auth0 setup](auth0-setup.md) and
+[AWS account setup](../phase0/staging/aws-account-setup.md).
+
 ## Remaining Phase 1 scope
 
 Managed provider selection/configuration and real hosted sign-in verification;
 new-account/email invitations and legal/registration
 organisation verification beyond domain ownership; real DNS acceptance, TLS/custom-host
 routing and browser UAT; shared staging branding storage and lifecycle operations.
-Notice retirement, enterprise-scale history pagination and retention/deletion
-workflows remain to build.
+Record-specific retention/deletion workflows remain to build.
 
 The existing identity/membership tables are a starting point, not acceptance of
 the full global account model. Auth-provider setup requires an actual tenant and
 configuration. No production payment/video integration has been introduced.
 
-Next implementation slice: not yet selected from the remaining scope above.
+Local Phase 1 work is complete; development continues in [Phase 2](../phase-2/status.md).
 Overall Phase 0 external gates remain open.
 
 ## Re-verification — 13 October 2026
