@@ -22,6 +22,27 @@ export class AccessService {
     });
   }
 
+  /** Opens a lesson: decides on fresh data, then reads its content in the SAME
+   * snapshot, so content is never served on a decision from different data.
+   * Locked results carry only the preview fields, never the body.
+   */
+  async open({ hubId, userId = null, lessonId }) {
+    return this.repository.withSnapshot(hubId, async (snapshot) => {
+      const chain = await snapshot.getTargetChain(lessonId);
+      if (!chain?.length || chain.some(row => row.hubId !== hubId)) return notFound();
+      const summary = userId ? await this.freshSummary(snapshot, hubId, userId) : null;
+      const decision = this.evaluate(chain, summary, 'content');
+      if (decision.decision === 'not_found') return decision;
+      const lesson = await snapshot.getLessonContent(lessonId);
+      if (!lesson) return notFound();
+      if (decision.decision === 'locked') {
+        const { body, ...preview } = lesson;
+        return { ...decision, lesson: preview };
+      }
+      return { decision: 'allowed', lesson };
+    });
+  }
+
   async freshSummary(snapshot, hubId, userId) {
     const versions = await snapshot.getVersions(userId);
     if (!versions) return null;

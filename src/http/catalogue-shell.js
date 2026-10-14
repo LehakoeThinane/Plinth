@@ -20,11 +20,14 @@ export function renderProducts({hub,products}) {
 export function renderProductEditor({hub,detail}) {
   const {product,modules,plans}=detail,live=product.status==='published',company=product.visibility==='company';
   const pending=modules.some(m=>m.lessons.some(l=>l.status==='draft'));
-  const lessons=m=>m.lessons.map(l=>`<li>${e(l.title)} · ${e(l.status)}${l.preview_available?' · free preview':''}</li>`).join('');
+  const lessons=m=>m.lessons.map(l=>`<li>${e(l.title)} · ${e(l.status)}${l.preview_available?' · preview shown':''}
+    <details><summary>Edit content${l.body?'':' (empty)'}</summary><form class="lesson-content" data-lesson-id="${e(l.id)}">
+    <label>Lesson text <small>(plain text; a blank line starts a new paragraph)</small><textarea name="body" maxlength="50000" rows="12">${e(l.body)}</textarea></label>
+    <button>Save content</button></form></details></li>`).join('');
   const outline=modules.map(m=>`<section><h3>${e(m.position+1)}. ${e(m.title)}</h3><ol>${lessons(m)}</ol>
     <form class="add-lesson" data-module-id="${e(m.id)}"><label>Lesson title<input name="title" required maxlength="200"></label>
     <label>Summary<textarea name="summary" maxlength="2000"></textarea></label>
-    <label class="choice"><input type="checkbox" name="previewAvailable"><span>Free preview</span></label><button>Add lesson</button></form></section>`).join('');
+    <label class="choice"><input type="checkbox" name="previewAvailable"><span>Show a locked preview (title and summary) to people who cannot open it yet</span></label><button>Add lesson</button></form></section>`).join('');
   const prices=plans.map(p=>`<li>${e(priceLabel(p))} · ${e(p.status)}${p.status==='active'?` <button type="button" class="retire-plan" data-plan-id="${e(p.id)}">Retire</button>`:''}</li>`).join('');
   return `<p><a href="/h/${e(hub.slug)}/admin/products">All products</a></p><h1>${e(product.title)}</h1>
     <p>${e(types[product.type]??product.type)} · ${e(visibilities[product.visibility]??product.visibility)} · ${e(product.status)}${live&&!company?` · <a href="/h/${e(hub.slug)}/products/${e(product.id)}">View public page</a>`:''}</p>

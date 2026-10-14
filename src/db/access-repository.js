@@ -19,6 +19,14 @@ export class PostgresAccessRepository {
           const map=r=>({id:r.id,hubId:r.hub_id,companyOrg:r.company_org,status:r.status,access:r.access_mode,visibility:r.visibility,previewAvailable:r.preview_available??false});
           return [map(lesson),map(product)];
         },
+        // Read under the same RLS context (organisations, staff) as the decision.
+        getLessonContent:async id=>{
+          const row=(await tx.query(`SELECT l.id,l.title,l.summary,l.product_id,p.title AS product_title,c.body
+            FROM catalogue.lessons l JOIN catalogue.products p ON p.hub_id=l.hub_id AND p.id=l.product_id
+            LEFT JOIN content.lesson_bodies c ON c.hub_id=l.hub_id AND c.lesson_id=l.id
+            WHERE l.hub_id=$1 AND l.id=$2`,[hubId,id])).rows[0];
+          return row?{id:row.id,title:row.title,summary:row.summary,productId:row.product_id,productTitle:row.product_title,body:row.body??''}:null;
+        },
         getVersions:async id=>{assertUser(id);const r=(await tx.query('SELECT u.access_version,h.access_epoch FROM identity.users u CROSS JOIN tenancy.hubs h WHERE u.id=$1 AND h.id=$2',[id,hubId])).rows[0];return r?{userVersion:r.access_version,hubEpoch:r.access_epoch}:null;},
         getAccessSummary:async id=>{
           assertUser(id);

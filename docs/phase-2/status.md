@@ -34,7 +34,25 @@ passed 115 checks on three consecutive runs. The new check covers sign-in
 redirects, member denial, escaping, outline and price rendering, publish-button
 state and company-product handling. Browser-level UAT of the forms is pending.
 
+## Third implemented slice: lesson content
+
+Lessons carry plain written content, authored per lesson in the product editor.
+Opening a lesson makes the access decision and reads the content in the same
+snapshot, returning the content, a locked preview or 404 (Flow C). Free lessons
+open signed out; company lessons need both an entitlement and company
+membership. Migration 017 adds `content.lesson_bodies` under hub, company and
+admin-write policies. The preview flag was relabelled: it shows a locked teaser,
+it never makes a lesson free.
+
+Validation: `npm run verify` passed 189 checks; the full PostgreSQL 17 suite
+passed 120 checks (five new) on five consecutive clean runs. Coverage includes
+admin-only and boundary-scoped authoring, buyer/member/anonymous/staff
+outcomes, company double checks, revocation and drafts, credential handling and
+escaped rendering. Two test fixes: cleanup now removes lesson bodies before
+users, and a notice-history check no longer assumes cross-transaction clock
+order. See [lesson content](lessons.md).
+
 ## Next
 
-1. Lesson content and protected assets (text first; files need storage).
-2. Checkout and entitlements, once the payment provider decision is made.
+1. Progress saving and a learner "my learning" view.
+2. Protected file assets (needs storage) and checkout (needs the payment provider decision).

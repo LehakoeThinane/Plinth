@@ -11,7 +11,7 @@ and never appear on the shelf.
 | --- | --- | --- |
 | Product | type (`course`, `toolkit`, `programme`), title, summary, visibility (`public`, `members`, `company`), access mode (`open`, `members`, `entitled`), status | Starts as a draft. Type and visibility are fixed after creation. Each product owns a boundary; company products set the boundary's organisation. |
 | Module | title, position | Ordered within a product. |
-| Lesson | title, summary, position, preview flag, status | Belongs to a module of the same product and boundary (composite foreign key). |
+| Lesson | title, summary, position, preview flag (locked teaser, never free), status, written content ([lessons](lessons.md)) | Belongs to a module of the same product and boundary (composite foreign key). |
 | Plan | model (`once_off`, `subscription` with `month`/`year`, `per_seat`), amount in ZAR cents | Immutable: a price change retires the plan and adds a new one. Only retirement is allowed (`active` → `retired`). |
 
 Amounts are integer cents between R1.00 and R1,000,000.00, shown as entered.
@@ -87,6 +87,6 @@ sent to sign-in; other members get 404.
 
 ## Not yet built
 
-Lesson content and file uploads (assets), bundles,
+File uploads (assets), bundles,
 members-only shelf views, unpublishing/archiving, reordering and deletion,
 checkout and seat grants.

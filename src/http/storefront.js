@@ -42,12 +42,32 @@ export function renderStorefront(hub,{signIn=false,products=null}={}) {
 <p class="description">${e(hub.description||'A place to learn, connect, and exchange ideas.')}</p></section>
 <section class="card" aria-labelledby="courses"><h2 id="courses">Explore courses</h2>${items?`<ul class="shelf">${items}</ul>`:'<p>New courses will appear here as they are published.</p>'}</section>`});
 }
+/** Plain text only: blank lines separate paragraphs, single newlines break lines. */
+export function renderBody(body) {
+  return String(body??'').split(/\r?\n\s*\r?\n/).map(p=>p.trim()).filter(Boolean)
+    .map(p=>'<p>'+e(p).replace(/\r?\n/g,'<br>')+'</p>').join('');
+}
 export function renderProductPage(hub,{product,modules,plans},{signIn=false}={}) {
-  const outline=modules.map(m=>`<li><strong>${e(m.title)}</strong><ol>${m.lessons.map(l=>`<li>${e(l.title)}${l.preview_available?' · free preview':''}</li>`).join('')}</ol></li>`).join('');
+  // Link a lesson where a visitor can see something: free products, or lessons with a preview.
+  const lessonItem=l=>{
+    const linked=product.access_mode==='open'||l.preview_available;
+    const title=linked?`<a href="/h/${e(hub.slug)}/lessons/${e(l.id)}">${e(l.title)}</a>`:e(l.title);
+    return `<li>${title}${l.preview_available&&product.access_mode!=='open'?' · preview':''}</li>`;
+  };
+  const outline=modules.map(m=>`<li><strong>${e(m.title)}</strong><ol>${m.lessons.map(lessonItem).join('')}</ol></li>`).join('');
   const pricing=product.access_mode==='entitled'?(plans.length?`<ul>${plans.map(p=>`<li class="price">${e(priceLabel(p))}</li>`).join('')}</ul><p>Purchasing opens soon.</p>`:'<p>Not currently on sale.</p>')
     :`<p class="price">${product.access_mode==='members'?'Free for hub members':'Free'}</p>`;
   return layout(hub,{signIn,title:product.title+' · '+hub.display_name,main:`<section class="intro"><p class="eyebrow">${e(typeLabels[product.type]??'Course')}</p>
 <h1>${e(product.title)}</h1><p class="description">${e(product.summary)}</p></section>
 <section class="card"><h2>Pricing</h2>${pricing}</section>
 <section class="card"><h2>What's inside</h2>${outline?`<ol>${outline}</ol>`:'<p>The outline will appear here.</p>'}</section>`});
+}
+const unlock={join:'Join this hub to open this lesson.',purchase:'Buy this product to open this lesson.'};
+export function renderLessonPage(hub,{decision,reason,lesson},{signIn=false}={}) {
+  const back=`<p><a href="/h/${e(hub.slug)}/products/${e(lesson.productId)}">${e(lesson.productTitle)}</a></p>`;
+  const locked=`<section class="card"><h2>Locked</h2><p>${e(unlock[reason]??'This lesson is not available to you yet.')}</p>
+    <p>${reason==='join'?`<a href="/h/${e(hub.slug)}/sign-in?view=join">Join the hub</a>`:`<a href="/h/${e(hub.slug)}/products/${e(lesson.productId)}">See pricing</a>`}</p></section>`;
+  return layout(hub,{signIn,title:lesson.title+' · '+hub.display_name,main:`<section class="intro">${back}<h1>${e(lesson.title)}</h1>
+<p class="description">${e(lesson.summary)}</p></section>
+${decision==='allowed'?`<article class="card lesson">${renderBody(lesson.body)||'<p>This lesson has no written content yet.</p>'}</article>`:locked}`});
 }

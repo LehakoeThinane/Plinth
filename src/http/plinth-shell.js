@@ -88,6 +88,11 @@ for(const form of document.querySelectorAll('.add-lesson'))form.addEventListener
   try{await request(product('/lessons'),'POST',{moduleId:form.dataset.moduleId,title:form.elements.title.value,summary:form.elements.summary.value,previewAvailable:form.elements.previewAvailable.checked});window.location.reload();}
   catch(error){status.textContent=error.message;button.disabled=false;}
 });
+for(const form of document.querySelectorAll('.lesson-content'))form.addEventListener('submit',async event=>{
+  event.preventDefault();const button=form.querySelector('button');button.disabled=true;
+  try{await request(product('/lessons/'+form.dataset.lessonId+'/content'),'PUT',{body:form.elements.body.value});status.textContent='Lesson content saved.';}
+  catch(error){status.textContent=error.message;}finally{button.disabled=false;}
+});
 formHandler('add-plan',async form=>{
   const amount=form.elements.amount.value.replace(',','.'),model=form.elements.model.value;
   if(!/^[0-9]+(\.[0-9]{1,2})?$/.test(amount))throw new Error('Enter the amount in rand, for example 1250.00.');

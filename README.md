@@ -22,7 +22,7 @@ are still pending.
 - A separate metadata-only public listing operation.
 - Recipient authorisation at message delivery, including suspension and company removal.
 - Progress conflict handling: monotonic completion/furthest position, independently mutable resume position.
-- Sixteen domain regression cases (`npm test`); the full local suite is 184 checks (`npm run verify`).
+- Sixteen domain regression cases (`npm test`); the full local suite is 189 checks (`npm run verify`).
 
 ## Run tests
 
@@ -56,7 +56,7 @@ The continuation adds six HTTP tests (npm run test:http). These verify routing/a
 
 ## Database verification without Docker
 
-Run npm run test:db:embedded. All 115 embedded SQL/RLS and database-backed HTTP checks pass. Full PostgreSQL 17 integration is still a separate CI requirement; the test-only embedded runner does not validate concurrent independent connections.
+Run npm run test:db:embedded. All 120 embedded SQL/RLS and database-backed HTTP checks pass. Full PostgreSQL 17 integration is still a separate CI requirement; the test-only embedded runner does not validate concurrent independent connections.
 
 ## Current Phase 0 status
 
@@ -73,7 +73,7 @@ Terraform staging/state-bootstrap configurations are now available and provider-
 
 Hub owners/admins can author products with modules, lessons and ZAR prices and
 publish them from admin screens to a public shelf at `/h/{slug}`, with product pages at
-`/h/{slug}/products/{id}`. Company products stay private to their organisation.
+`/h/{slug}/products/{id}`. Company products stay private to their organisation. Lessons carry written content that opens after an access check: free lessons signed out, paid ones for buyers, with locked previews otherwise.
 See [Phase 2 status](docs/phase-2/status.md) and [catalogue](docs/phase-2/catalogue.md).
 
 ## Phase 1 (local work complete)
@@ -101,5 +101,5 @@ with fresh provider sign-in and recent-session checks; see
 [account linking](docs/phase-1/account-linking.md).
 See [authentication setup](docs/phase-1/authentication.md).
 `npm run dev` remains a health shell; it does not enable test authentication or
-seed accounts. Apply migrations 003–016 in order to an
+seed accounts. Apply migrations 003–017 in order to an
 existing local database; fresh Compose volumes and CI apply them automatically.
