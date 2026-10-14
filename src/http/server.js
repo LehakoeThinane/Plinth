@@ -18,8 +18,19 @@ async function readBinary(req) {
   return Buffer.concat(chunks);
 }
 const htmlHeaders={'content-type':'text/html; charset=utf-8','cache-control':'no-store',
-  'content-security-policy':"default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+  'content-security-policy':"default-src 'none'; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
   'x-content-type-options':'nosniff','referrer-policy':'strict-origin-when-cross-origin'};
+// Self-hosted, OFL-licensed fonts: a fixed list, so no request picks a path.
+const fontFile=(pkg,file)=>new URL(import.meta.resolve(pkg+'/files/'+file));
+const fontFiles={
+  'body-400.woff2':fontFile('@fontsource/atkinson-hyperlegible-next','atkinson-hyperlegible-next-latin-400-normal.woff2'),
+  'body-400-italic.woff2':fontFile('@fontsource/atkinson-hyperlegible-next','atkinson-hyperlegible-next-latin-400-italic.woff2'),
+  'body-600.woff2':fontFile('@fontsource/atkinson-hyperlegible-next','atkinson-hyperlegible-next-latin-600-normal.woff2'),
+  'body-700.woff2':fontFile('@fontsource/atkinson-hyperlegible-next','atkinson-hyperlegible-next-latin-700-normal.woff2'),
+  'newsreader.woff2':fontFile('@fontsource-variable/newsreader','newsreader-latin-wght-normal.woff2'),
+  'newsreader-italic.woff2':fontFile('@fontsource-variable/newsreader','newsreader-latin-wght-italic.woff2'),
+  'archivo.woff2':fontFile('@fontsource-variable/archivo','archivo-latin-wght-normal.woff2')
+};
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 async function readObject(req,maxBytes=4096) {
   req.setEncoding('utf8');
@@ -66,6 +77,16 @@ export function createApi({authenticate,accessForPrincipal,consentForPrincipal,n
         const script=await readFile(new URL('./plinth-shell.js',import.meta.url),'utf8');
         res.writeHead(200,{'content-type':'text/javascript; charset=utf-8','x-content-type-options':'nosniff','cache-control':'no-cache'});
         return res.end(script);
+      }
+      if(req.method==='GET' && path==='/assets/plinth.css') {
+        const styles=await readFile(new URL('./plinth.css',import.meta.url),'utf8');
+        res.writeHead(200,{'content-type':'text/css; charset=utf-8','x-content-type-options':'nosniff','cache-control':'no-cache'});
+        return res.end(styles);
+      }
+      const font=req.method==='GET'&&path.startsWith('/assets/fonts/')?fontFiles[path.slice(14)]:null;
+      if(font) {
+        res.writeHead(200,{'content-type':'font/woff2','x-content-type-options':'nosniff','cache-control':'public, max-age=604800'});
+        return res.end(await readFile(font));
       }
       const commercePage=path.match(/^\/h\/([a-z0-9-]+)\/(?:(checkout)\/([0-9a-f-]{36})\/([0-9a-f-]{36})|(orders)(?:\/([0-9a-f-]{36}))?|admin\/(sales)|(subscribe)\/([0-9a-f-]{36})|(subscriptions))$/);
       if(browserSessions && publicHubs && hubForPrincipal && ordersForPrincipal && publicCatalogue && req.method==='GET' && commercePage &&

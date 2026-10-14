@@ -21,7 +21,9 @@ changing feature code. Stand-in screens are labelled TEST MODE.
 certificate (created once with OpenSSL into `.local/certs`), because session
 cookies are `__Host-`/`Secure` exactly as in production. It seeds the Zoya
 Speaks demo hub once (`src/dev/demo-seed.js`), mostly through the app's own
-repositories, so the data obeys the same rules as real use.
+repositories, so the data obeys the same rules as real use. Set `PORT` to run a
+second copy on another port; the demo people keep the same accounts because
+the test issuer name stays fixed.
 
 `TestIdentityProvider` stands in for Auth0. `/test-auth/authorize` shows a
 TEST SIGN-IN page listing the demo people and a brand-new visitor. Choosing one

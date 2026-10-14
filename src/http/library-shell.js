@@ -1,4 +1,5 @@
 import { escapeText as e } from './storefront.js';
+import { badge } from './ui.js';
 const visibilities={public:'Free to read (public)',members:'Hub members',tier:'Membership tiers that include it',entitled:'Buyers of a product'};
 const options=(labels,selected)=>Object.entries(labels).map(([value,label])=>`<option value="${value}"${value===selected?' selected':''}>${label}</option>`).join('');
 function itemFields(item={},products=[]) {
@@ -12,15 +13,15 @@ function itemFields(item={},products=[]) {
 }
 export function renderLibraryAdmin({hub,items}) {
   const rows=items.map(i=>`<tr><td><a href="/h/${e(hub.slug)}/admin/library/${e(i.id)}">${e(i.title)}</a></td><td>${e(visibilities[i.visibility]??i.visibility)}</td>
-    <td>${e(i.status)}</td><td>${e((i.topics??[]).join(', '))}</td></tr>`).join('');
-  return `<h1>Library</h1><section><h2>Your items</h2>${rows?`<table><thead><tr><th>Title</th><th>Readers</th><th>Status</th><th>Topics</th></tr></thead><tbody>${rows}</tbody></table>`:'<p>No library items yet.</p>'}</section>
-    <form id="create-library-item"><h2>Write an article</h2><p>Items start as drafts. Podcasts and videos arrive with media uploads.</p>${itemFields()}<button>Create draft</button></form>`;
+    <td>${badge(i.status)}</td><td>${e((i.topics??[]).join(', '))}</td></tr>`).join('');
+  return `<h1>Library</h1><p class="muted">Articles for the public, members, tiers or buyers.</p><section><h2>Your items</h2>${rows?`<div class="table"><table><thead><tr><th>Title</th><th>Readers</th><th>Status</th><th>Topics</th></tr></thead><tbody>${rows}</tbody></table></div>`:'<p class="muted">No library items yet.</p>'}</section>
+    <form id="create-library-item"><h2>Write an article</h2><p class="muted">Items start as drafts. Podcasts and videos arrive with media uploads.</p>${itemFields()}<button>Create draft</button></form>`;
 }
 export function renderLibraryEditor({hub,item,products}) {
-  return `<p><a href="/h/${e(hub.slug)}/admin/library">All library items</a></p><h1>${e(item.title)}</h1>
-    <p>Status: ${e(item.status)}${item.status==='published'?` · <a href="/h/${e(hub.slug)}/library/${e(item.id)}">View public page</a>`:''}</p>
+  return `<p class="crumb"><a href="/h/${e(hub.slug)}/admin/library">All library items</a></p><h1>${e(item.title)}</h1>
+    <p class="meta">${badge(item.status)}${item.status==='published'?`<a href="/h/${e(hub.slug)}/library/${e(item.id)}">View public page</a>`:''}</p>
     <form id="library-item" data-item-id="${e(item.id)}"><h2>Edit</h2>${itemFields(item,products)}<button>Save item</button></form>
-    <section><h2>Publishing</h2><p>Published items appear in the hub library; readers who cannot open them see a locked preview. Archived items are hidden and cannot return to draft.</p>
-    ${item.status!=='published'?'<button type="button" class="library-status" data-action="publish">Publish</button>':''}
-    ${item.status!=='archived'?' <button type="button" class="library-status" data-action="archive">Archive</button>':''}</section>`;
+    <section><h2>Publishing</h2><p class="muted">Published items appear in the hub library; readers who cannot open them see a locked preview. Archived items are hidden and cannot return to draft.</p>
+    <p class="actions">${item.status!=='published'?'<button type="button" class="library-status" data-action="publish">Publish</button>':''}
+    ${item.status!=='archived'?'<button type="button" class="library-status" data-action="archive">Archive</button>':''}</p></section>`;
 }

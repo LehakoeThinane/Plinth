@@ -10,6 +10,7 @@ import { LocalBrandingStore } from '../src/storage/local-branding.js';
 import { TestPaymentProvider } from '../src/modules/commerce/test-payment-provider.js';
 import { TestIdentityProvider } from '../src/dev/test-identity-provider.js';
 import { seedDemo,demoPeople,demoSlug } from '../src/dev/demo-seed.js';
+import { head } from '../src/http/ui.js';
 // Local click-through run with stand-ins: TEST SIGN-IN, TEST MODE payments and
 // demo data. Never for production; every stand-in refuses NODE_ENV=production.
 if(process.env.NODE_ENV==='production')throw new Error('npm run local is for local development only');
@@ -32,8 +33,9 @@ if(!existsSync(key)||!existsSync(cert)) {
     '-addext','subjectAltName=DNS:localhost','-keyout',key,'-out',cert],{stdio:'ignore'});
 }
 
-const issuer=origin+'/test-auth';
-const identity=await TestIdentityProvider.create({issuer,clientId:'plinth-local',redirectUri:origin+'/auth/callback',people:demoPeople});
+// A fixed issuer keeps the demo people's accounts the same whichever PORT is used.
+const issuer='https://localhost:8443/test-auth';
+const identity=await TestIdentityProvider.create({issuer,endpoint:origin+'/test-auth',clientId:'plinth-local',redirectUri:origin+'/auth/callback',people:demoPeople});
 const seeded=await seedDemo({admin,app,issuer});
 // Bearer API tokens are not used in the browser run; a local key set satisfies configuration.
 const apiKeys=await generateKeyPair('ES256'),apiJwk={...await exportJWK(apiKeys.publicKey),kid:'local-api'};
@@ -43,12 +45,13 @@ const application=createManagedApplication({pool:app,authPool:auth,
   brandingStore:new LocalBrandingStore({root:'.local/branding'}),domainVerificationPool:domains,
   paymentProvider:new TestPaymentProvider(),paymentsPool:payments,onError:error=>console.error(error)});
 const handle=application.listeners('request')[0];
-const landing=`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Plinth local</title>
-<style>body{font-family:system-ui,sans-serif;max-width:640px;margin:40px auto;padding:0 16px;color:#172334;line-height:1.6}.banner{background:#7a1f1f;color:white;padding:12px 16px;border-radius:8px;font-weight:700}</style></head>
-<body><p class="banner">LOCAL TEST RUN: stand-in sign-in and payments, demo data, no real money.</p><h1>Plinth</h1>
-<ul><li><a href="/h/${demoSlug}">Zoya Speaks storefront</a> (public)</li><li><a href="/h/${demoSlug}/sign-in?view=member">Sign in</a> as one of the demo people</li>
-<li><a href="/h/${demoSlug}/admin">Provider admin</a> (sign in as Zoya)</li><li><a href="/h/${demoSlug}/learning">My learning</a> (sign in as Thabo)</li></ul>
-<p>Demo people: ${demoPeople.map(p=>p.name).join(', ')}, or a brand-new visitor.</p></body></html>`;
+const landing=`${head({title:'Plinth local'})}<body><div class="testmode"><div class="wrap">LOCAL TEST RUN: stand-in sign-in and payments, demo data, no real money.</div></div>
+<main id="main" class="standin"><p class="eyebrow">Plinth</p><h1>Local click-through</h1>
+<section class="panel"><ul class="rows"><li><h3><a href="/h/${demoSlug}">Zoya Speaks storefront</a></h3><p class="muted">What a visitor sees, signed out.</p></li>
+<li><h3><a href="/h/${demoSlug}/admin">Provider admin</a></h3><p class="muted">Sign in as Zoya: products, library, tiers, community and sales.</p></li>
+<li><h3><a href="/h/${demoSlug}/learning">My learning</a></h3><p class="muted">Sign in as Thabo: a learner part-way through a free course.</p></li>
+<li><h3><a href="/h/${demoSlug}/community">Community</a></h3><p class="muted">Sign in as Lerato to see the private Absa space.</p></li></ul></section>
+<p class="muted">Demo people: ${demoPeople.map(p=>p.name).join(', ')}, or a brand-new visitor. Purchases use the TEST MODE payment page.</p></main></body></html>`;
 createServer({key:await readFile(key),cert:await readFile(cert)},(req,res)=>{
   const url=new URL(req.url,origin);
   if(url.pathname.startsWith('/test-auth/'))return identity.handle(req,res,url).catch(error=>{console.error(error);res.writeHead(500);res.end();});
