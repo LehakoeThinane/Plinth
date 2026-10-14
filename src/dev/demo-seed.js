@@ -12,12 +12,13 @@ import { PostgresAccessRepository } from '../db/access-repository.js';
 import { AccessService } from '../access.js';
 import { MemoryAccessCache } from '../cache/memory.js';
 import { randomUUID } from 'node:crypto';
+import { SeatRepository } from '../db/seat-repository.js';
 export const demoSlug='zoya-speaks';
 /** Demo personas offered on the test sign-in page. */
 export const demoPeople=[
-  {subject:'zoya',name:'Zoya (provider)',role:'Owns the Zoya Speaks hub: products, library, tiers, moderation, sales'},
+  {subject:'zoya',name:'Zoya (provider)',role:'Owns the Zoya Speaks hub: products, library, tiers, moderation, sales, company seats'},
   {subject:'thabo',name:'Thabo (learner)',role:'A hub member who has started the free course'},
-  {subject:'lerato',name:'Lerato (Absa employee)',role:'Member of the Absa (demo) company: sees the private programme space'},
+  {subject:'lerato',name:'Lerato (Absa admin)',role:'Administers Absa (demo): assigns company seats; sees the private programme and space'},
   {subject:'sipho',name:'Sipho (prospect)',role:'Not a member yet; has sent an enquiry'}
 ];
 const text=(...paragraphs)=>paragraphs.join('\n\n');
@@ -37,7 +38,7 @@ export async function seedDemo({admin,app,issuer,environment=process.env.NODE_EN
       await admin.query('INSERT INTO identity.auth_links(issuer,subject,user_id) VALUES($1,$2,$3)',[issuer,person.subject,ids[person.subject]]);
     }
   }
-  if(existing)return {created:false,hubId:existing.id};
+  if(existing){await ensureSeats({admin,db:new TenantDatabase(app),ids,hubId:existing.id});return {created:false,hubId:existing.id};}
   const db=new TenantDatabase(app);
   const hub=await new HubRepository(db,ids.zoya).create({slug:demoSlug,displayName:'Zoya Speaks'});
   const hubId=hub.id;
@@ -96,5 +97,20 @@ export async function seedDemo({admin,app,issuer,environment=process.env.NODE_EN
   await new MessagingRepository(db,ids.sipho).createEnquiry(hubId,{subject:'Keynote for our sales conference',need:'We are looking for a 45-minute keynote on confident presenting for 200 people in March.'});
   await access(ids.thabo).recordProgress({hubId,userId:ids.thabo,lessonId:quickWins.lessons[0],idempotencyKey:'demo-seed-progress-1',
     update:{baseRevision:0,furthestPosition:1,resumePosition:1,completed:true}});
+  await ensureSeats({admin,db,ids,hubId});
   return {created:true,hubId};
+}
+/** Company seats demo, added to existing demo hubs too: a per-seat price on BE
+ * HEARD, and Zoya's grant of Absa programme seats, one of them held by Lerato.
+ */
+async function ensureSeats({admin,db,ids,hubId}) {
+  const find=async(sql,params)=>(await admin.query(sql,params)).rows[0]?.id;
+  const beHeard=await find("SELECT id FROM catalogue.products WHERE hub_id=$1 AND title LIKE 'BE HEARD%'",[hubId]);
+  const programme=await find("SELECT id FROM catalogue.products WHERE hub_id=$1 AND title='Absa leadership voice programme'",[hubId]);
+  const absa=await find("SELECT o.id FROM identity.organisations o JOIN identity.org_members m ON m.org_id=o.id WHERE m.user_id=$1 AND o.display_name='Absa (demo)'",[ids.lerato]);
+  if(!beHeard||!programme||!absa)return;
+  if(!await find("SELECT id FROM catalogue.plans WHERE hub_id=$1 AND product_id=$2 AND model='per_seat' AND status='active'",[hubId,beHeard]))
+    await new CatalogueRepository(db,ids.zoya).addPlan(hubId,beHeard,{model:'per_seat',amountCents:95000});
+  const {poolId}=await new SeatRepository(db,ids.zoya).grant(hubId,{orgId:absa,productId:programme,seats:10,reference:'ABSA-PO-2026-118',idempotencyKey:'demo-absa-seat-grant'});
+  await new SeatRepository(db,ids.lerato).assign(hubId,poolId,ids.lerato);
 }

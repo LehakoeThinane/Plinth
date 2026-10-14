@@ -47,6 +47,31 @@ export class CommerceRepository {
       return {id:orderId,status:'pending',total_cents:plan.amount_cents,psp_reference:null,description:plan.title,replayed:false};
     });
   }
+  /** A company admin buys a number of seats at a per-seat price for their
+   * organisation. Payment creates the seat pool; nobody has access until a
+   * seat is assigned.
+   */
+  async createSeatOrder(hubId,{planId,orgId,quantity,idempotencyKey}) {
+    if(![planId,orgId].every(v=>uuid.test(v??''))||!Number.isInteger(quantity)||quantity<1||quantity>1000)throw fail(400);
+    if(typeof idempotencyKey!=='string'||!/^[A-Za-z0-9_-]{8,100}$/.test(idempotencyKey))throw fail(400,'idempotency_key_required');
+    const requestHash=createHash('sha256').update(JSON.stringify({planId,orgId,quantity})).digest('hex');
+    return this.#run(hubId,async tx=>{
+      const replay=(await tx.query('SELECT id,request_hash,status,total_cents,psp_reference FROM commerce.orders WHERE buyer_id=$1 AND idempotency_key=$2',[this.#userId,idempotencyKey])).rows[0];
+      if(replay){if(replay.request_hash!==requestHash)throw fail(409,'idempotency_key_reused');return {...replay,replayed:true};}
+      if(!(await tx.query('SELECT app.is_active_member() AS ok')).rows[0].ok)throw fail(409,'join_first');
+      if(!(await tx.query('SELECT app.is_company_admin($1) AS ok',[orgId])).rows[0].ok)throw fail(409,'not_company_admin');
+      const plan=(await tx.query(`SELECT s.id,s.amount_cents,s.model,p.id AS product_id,p.title FROM catalogue.plans s JOIN catalogue.products p ON p.hub_id=s.hub_id AND p.id=s.product_id
+        WHERE s.id=$1 AND s.status='active' AND p.status='published' AND p.visibility<>'company' AND p.access_mode='entitled'`,[planId])).rows[0];
+      if(!plan)throw fail(404);
+      if(plan.model!=='per_seat')throw fail(409,'not_a_seat_price');
+      const total=plan.amount_cents*quantity,orderId=randomUUID();
+      await tx.query(`INSERT INTO commerce.orders(hub_id,id,buyer_id,subtotal_cents,total_cents,idempotency_key,request_hash,kind,seat_org)
+        VALUES($1,$2,$3,$4,$4,$5,$6,'seats',$7)`,[hubId,orderId,this.#userId,total,idempotencyKey,requestHash,orgId]);
+      await tx.query(`INSERT INTO commerce.order_lines(hub_id,order_id,line,plan_id,product_id,quantity,unit_amount_cents,amount_cents)
+        VALUES($1,$2,1,$3,$4,$5,$6,$7)`,[hubId,orderId,plan.id,plan.product_id,quantity,plan.amount_cents,total]);
+      return {id:orderId,status:'pending',total_cents:total,psp_reference:null,description:plan.title+' ('+quantity+' seat'+(quantity===1?'':'s')+')',replayed:false};
+    });
+  }
   /** Starts a subscription to a published tier or a subscription-priced product:
    * a pending subscription and its first order. Payment activates both.
    */
@@ -114,7 +139,7 @@ export class CommerceRepository {
   async order(hubId,orderId) {
     if(!uuid.test(orderId??''))throw fail(400);
     return this.#run(hubId,async tx=>{
-      const row=(await tx.query(`SELECT o.id,o.status,o.subtotal_cents,o.vat_cents,o.total_cents,o.created_at,o.paid_at,o.psp_reference,l.product_id,p.title
+      const row=(await tx.query(`SELECT o.id,o.status,o.kind,l.quantity,o.subtotal_cents,o.vat_cents,o.total_cents,o.created_at,o.paid_at,o.psp_reference,l.product_id,p.title
         FROM commerce.orders o JOIN commerce.order_lines l ON l.hub_id=o.hub_id AND l.order_id=o.id AND l.line=1
         JOIN catalogue.products p ON p.hub_id=o.hub_id AND p.id=l.product_id WHERE o.id=$1 AND o.buyer_id=$2`,[orderId,this.#userId])).rows[0];
       if(!row)throw fail(404);return row;

@@ -61,8 +61,8 @@ export function renderProductPage(hub,{product,modules,plans},{signIn=false}={})
   const lessonCount=modules.reduce((n,m)=>n+m.lessons.length,0);
   const outline=modules.map(m=>`<li><h3>${e(m.title)}</h3><ol>${m.lessons.map(lessonItem).join('')}</ol></li>`).join('');
   const pricing=product.access_mode==='entitled'?(plans.length?`<ul class="plans">${plans.map(p=>`<li><span class="eyebrow">${({once_off:'Once-off',subscription:'Subscription',per_seat:'For companies'})[p.model]}</span>
-      <span class="price">${e(priceLabel(p))}</span>${p.model==='per_seat'?'<span class="muted">Company seats are opening soon.</span>':
-      `<a class="button primary" href="${base}/checkout/${e(product.id)}/${e(p.id)}">${p.model==='subscription'?'Subscribe':'Buy now'}</a>`}</li>`).join('')}</ul>`:'<p class="muted">Not currently on sale.</p>')
+      <span class="price">${e(priceLabel(p))}</span>${p.model==='per_seat'?'<span class="muted">Your company buys seats and assigns them to colleagues.</span>':''}
+      <a class="button primary" href="${base}/checkout/${e(product.id)}/${e(p.id)}">${p.model==='subscription'?'Subscribe':p.model==='per_seat'?'Buy seats':'Buy now'}</a></li>`).join('')}</ul>`:'<p class="muted">Not currently on sale.</p>')
     :`<p class="price">${product.access_mode==='members'?'Free for hub members':'Free'}</p>${product.access_mode==='members'&&signIn?`<a class="button primary" href="${base}/sign-in?view=join">Join the hub</a>`:''}`;
   return layout(hub,{signIn,title:product.title+' · '+hub.display_name,current:'shelf',main:`<p class="crumb"><a href="${base}">All courses</a></p>
 <section class="intro"><p class="eyebrow">${e(typeLabels[product.type]??'Course')}</p><h1>${e(product.title)}</h1><p class="lede">${e(product.summary)}</p></section>

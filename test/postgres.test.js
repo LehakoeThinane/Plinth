@@ -30,6 +30,7 @@ import { enquiryChecks } from './enquiry-workflows.js';
 import { tierChecks } from './tier-workflows.js';
 import { commerceChecks } from './commerce-workflows.js';
 import { subscriptionChecks } from './subscription-workflows.js';
+import { seatChecks } from './seat-workflows.js';
 import { TestPaymentProvider } from '../src/modules/commerce/test-payment-provider.js';
 import { LocalBrandingStore } from '../src/storage/local-branding.js';
 import { mkdir,mkdtemp,rm } from 'node:fs/promises';
@@ -410,6 +411,7 @@ try {
   await tierChecks({admin,db,hubId:createdHub,userA,companyOrg:orgA,check,base,fetch,slug:createdSlug,testUsers});
   await commerceChecks({admin,app,db,paymentsPool,provider:paymentProvider,hubId:createdHub,userA,check,base,fetch,slug:createdSlug,testUsers});
   await subscriptionChecks({admin,db,paymentsPool,provider:paymentProvider,hubId:createdHub,userA,check,base,fetch,slug:createdSlug,testUsers});
+  await seatChecks({admin,app,db,paymentsPool,provider:paymentProvider,hubId:createdHub,userA,otherOrg:orgB,check,base,fetch,slug:createdSlug,testUsers,testOrgs});
   const browserHeaders={host:'learn-a.example',origin:'https://learn-a.example'};
   await check('browser session exchange requires a verified bearer and exact trusted origin',async()=>{
     const sessionUrl=base+'/v1/hubs/'+a+'/session';
@@ -545,6 +547,8 @@ try {
       await c.query('ALTER TABLE commerce.ledger_entries ENABLE TRIGGER ledger_immutable');await c.query('COMMIT');}
     catch(error){await c.query('ROLLBACK');throw error;}finally{c.release();}}
   await admin.query("DELETE FROM commerce.payment_events WHERE reference IN (SELECT psp_reference FROM commerce.orders WHERE hub_id=ANY($1::uuid[])) OR reference LIKE 'test\\_%'",[testHubs]);
+  await admin.query('DELETE FROM commerce.seat_assignments WHERE hub_id=ANY($1::uuid[])',[testHubs]);
+  await admin.query('DELETE FROM commerce.seat_pools WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM commerce.order_lines WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM commerce.orders WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM commerce.subscriptions WHERE hub_id=ANY($1::uuid[])',[testHubs]);

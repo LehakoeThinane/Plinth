@@ -13,7 +13,20 @@ export function renderTestPayment(session) {
 <form method="post" action="/test-payments/${ref}/decline"><button type="submit" class="decline">Decline</button></form></div></section>`);
 }
 const per=interval=>interval==='year'?'per year':'per month';
-export function renderCheckout({hub,product,plan}) {
+/** Seats are bought by a company admin for one of their organisations. */
+function renderSeatCheckout({hub,product,plan,companies}) {
+  const back=`<p class="crumb"><a href="/h/${e(hub.slug)}/products/${e(product.id)}">Back to ${e(product.title)}</a></p><h1>Buy seats for ${e(product.title)}</h1>`;
+  if(!companies.length)return back+`<section><p>Seats are bought by a company administrator for their organisation.</p>
+    <p class="muted">Set up your company on the <a href="/h/${e(hub.slug)}/organisations">Organisations</a> page first, or ask your company's administrator to buy the seats.</p></section>`;
+  return back+`<section><h2>Order</h2>
+    <label>Organisation<select id="seat-org">${companies.map(c=>`<option value="${e(c.id)}">${e(c.display_name)}</option>`).join('')}</select></label>
+    <label>Number of seats<input id="seat-quantity" type="number" min="1" max="1000" value="10" required></label>
+    <dl class="facts"><dt>Price per seat</dt><dd class="price">${e(formatRand(plan.amount_cents))}</dd><dt>Total</dt><dd class="price" id="seat-total" data-unit="${e(plan.amount_cents)}">${e(formatRand(plan.amount_cents*10))}</dd></dl>
+    <p class="muted">The seats belong to the organisation. After payment, assign them to colleagues on the Company seats page. Each seat gives one person access.</p>
+    <p class="actions"><button type="button" id="start-checkout" data-plan-id="${e(plan.id)}">Continue to payment</button></p></section>`;
+}
+export function renderCheckout({hub,product,plan,companies=[]}) {
+  if(plan.model==='per_seat')return renderSeatCheckout({hub,product,plan,companies});
   const subscription=plan.model==='subscription';
   return `<p class="crumb"><a href="/h/${e(hub.slug)}/products/${e(product.id)}">Back to ${e(product.title)}</a></p><h1>${subscription?'Subscribe to':'Buy'} ${e(product.title)}</h1>
     <section><h2>Order summary</h2><dl class="facts"><dt>Product</dt><dd>${e(product.title)}</dd><dt>Price</dt><dd class="price">${e(formatRand(plan.amount_cents))}${subscription?' '+per(plan.billing_interval):''}</dd>
@@ -52,7 +65,8 @@ export function renderOrders({hub,orders}) {
   return `<h1>Your orders</h1><section>${rows?`<div class="table"><table><thead><tr><th>Product</th><th class="num">Total</th><th>Status</th><th>Placed</th></tr></thead><tbody>${rows}</tbody></table></div>`:'<p class="muted">No orders yet.</p>'}</section>`;
 }
 export function renderOrder({hub,order}) {
-  const next=order.status==='paid'?`<p class="actions"><a class="button primary" href="/h/${e(hub.slug)}/learning">Start learning</a></p>`:
+  const next=order.status==='paid'&&order.kind==='seats'?`<p class="actions"><a class="button primary" href="/h/${e(hub.slug)}/seats">Assign the ${e(order.quantity)} seats</a></p>`:
+    order.status==='paid'?`<p class="actions"><a class="button primary" href="/h/${e(hub.slug)}/learning">Start learning</a></p>`:
     order.status==='pending'?'<p class="muted">We are waiting for the payment provider to confirm. Refresh this page in a moment.</p>':
     order.status==='failed'?`<p class="actions"><a class="button primary" href="/h/${e(hub.slug)}/products/${e(order.product_id)}">Try again</a></p>`:'<p class="muted">The provider will review this order.</p>';
   return `<p class="crumb"><a href="/h/${e(hub.slug)}/orders">All orders</a></p><h1>${e(order.title)}</h1>

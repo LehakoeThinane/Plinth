@@ -38,7 +38,8 @@ export const matchCommerceApi=routeTable([
   ['POST',`checkout`,async(c,h)=>{
     const input=await c.body(),hub=await c.resolveSlug(input.slug);
     if(hub.id!==h)throw Object.assign(new Error('Not found'),{status:404});
-    return [201,await c.checkout.checkout(h,{planId:input.planId,idempotencyKey:c.headers['idempotency-key'],returnUrlFor:id=>'/h/'+hub.slug+'/orders/'+id})];
+    const seats=input.orgId===undefined?null:{orgId:input.orgId,quantity:input.quantity};
+    return [201,await c.checkout.checkout(h,{planId:input.planId,seats,idempotencyKey:c.headers['idempotency-key'],returnUrlFor:id=>'/h/'+hub.slug+'/orders/'+id})];
   }],
   ['GET',`orders`,async(c,h)=>({orders:await c.orders.orders(h)})],
   ['POST',`subscriptions`,async(c,h)=>{
@@ -51,4 +52,15 @@ export const matchCommerceApi=routeTable([
   ['GET',`orders/${id}`,(c,h,o)=>c.orders.order(h,o)],
   ['GET',`catalogue/sales`,(c,h)=>c.orders.sales(h)],
   ['POST',`catalogue/sales/${id}/refund`,(c,h,o)=>c.checkout.refund(h,o)]
+]);
+export const matchSeatApi=routeTable([
+  ['GET',`seats/companies`,async(c,h)=>({companies:await c.seats.companies(h)})],
+  ['GET',`seats`,(c,h)=>c.seats.overview(h,c.query.get('org'))],
+  ['POST',`catalogue/seat-grants`,async(c,h)=>{
+    const input=await c.body();
+    return [201,await c.seats.grant(h,{orgId:input.orgId,productId:input.productId,seats:input.seats,reference:input.reference,idempotencyKey:c.headers['idempotency-key']})];
+  }],
+  ['POST',`catalogue/seat-grants/${id}/end`,(c,h,p)=>c.seats.endPool(h,p)],
+  ['POST',`seat-pools/${id}/assignments`,async(c,h,p)=>[201,await c.seats.assign(h,p,(await c.body()).userId)]],
+  ['DELETE',`seat-pools/${id}/assignments/${id}`,(c,h,p,u)=>c.seats.revoke(h,p,u)]
 ]);

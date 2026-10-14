@@ -12,3 +12,4 @@ CREATE ROLE plinth_maintenance LOGIN PASSWORD 'local-development-only' NOSUPERUS
 CREATE ROLE plinth_community_moderator NOLOGIN NOSUPERUSER NOBYPASSRLS;
 CREATE ROLE plinth_commerce_executor NOLOGIN NOSUPERUSER NOBYPASSRLS;
 CREATE ROLE plinth_payments LOGIN PASSWORD 'local-development-only' NOSUPERUSER NOBYPASSRLS;
+CREATE ROLE plinth_seat_executor NOLOGIN NOSUPERUSER NOBYPASSRLS;

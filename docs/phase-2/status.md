@@ -167,8 +167,23 @@ Validation: `npm run verify` passed 220 checks; the full PostgreSQL 17 suite
 passed 148 checks (four new) on three consecutive runs, plus three unit tests for
 the stand-in provider's signatures and sessions. See [payments](payments.md).
 
+## Eleventh implemented slice: company seats
+
+Companies hold seats for a product and give them to their own people. Seats come
+from a per-seat purchase by a company admin (paid through the signed webhook) or
+from a provider grant for a deal paid off the platform, with a required
+reference. Assigning a seat creates an ordinary entitlement, so access follows
+the normal rules. The pool row is locked and its count updated on every change,
+so two admins can never hand out the last seat twice. Refunds and ended grants
+end every seat in the pool. Migration 028; screens for company admins and hub
+admins.
+
+Validation: `npm run verify` passed 236 checks; the full PostgreSQL 17 suite
+passed 160 checks (seven new) on three consecutive runs, including a race for the
+last seat. See [company seats](seats.md).
+
 ## Next
 
-Payments continue with subscriptions (tiers), seats and refunds; then the media
-stand-in. Protected file assets and checkout remain blocked on storage and the
-payment provider decision.
+The media stand-in (signed links for video, audio and PDF lessons), then the
+email outbox and live updates. Real payments and storage remain blocked on the
+provider decisions.
