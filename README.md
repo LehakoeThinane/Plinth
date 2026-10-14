@@ -22,7 +22,7 @@ are still pending.
 - A separate metadata-only public listing operation.
 - Recipient authorisation at message delivery, including suspension and company removal.
 - Progress conflict handling: monotonic completion/furthest position, independently mutable resume position.
-- Sixteen domain regression cases (`npm test`); the full local suite is 206 checks (`npm run verify`).
+- Sixteen domain regression cases (`npm test`); the full local suite is 210 checks (`npm run verify`).
 
 ## Run tests
 
@@ -56,7 +56,7 @@ The continuation adds six HTTP tests (npm run test:http). These verify routing/a
 
 ## Database verification without Docker
 
-Run npm run test:db:embedded. All 137 embedded SQL/RLS and database-backed HTTP checks pass. Full PostgreSQL 17 integration is still a separate CI requirement; the test-only embedded runner does not validate concurrent independent connections.
+Run npm run test:db:embedded. All 141 embedded SQL/RLS and database-backed HTTP checks pass. Full PostgreSQL 17 integration is still a separate CI requirement; the test-only embedded runner does not validate concurrent independent connections.
 
 ## Current Phase 0 status
 
@@ -73,7 +73,7 @@ Terraform staging/state-bootstrap configurations are now available and provider-
 
 Hub owners/admins can author products with modules, lessons and ZAR prices and
 publish them from admin screens to a public shelf at `/h/{slug}`, with product pages at
-`/h/{slug}/products/{id}`. Company products stay private to their organisation. Lessons carry written content that opens after an access check: free lessons signed out, paid ones for buyers, with locked previews otherwise. Learners save progress and see their courses on a My learning page; every delivery of lesson content is logged for leak investigation. Providers publish library articles for the public, members, tiers or buyers; see [library](docs/phase-2/library.md). Members discuss in hub, tier and company spaces with reports and moderation; see [community](docs/phase-2/community.md).
+`/h/{slug}/products/{id}`. Company products stay private to their organisation. Lessons carry written content that opens after an access check: free lessons signed out, paid ones for buyers, with locked previews otherwise. Learners save progress and see their courses on a My learning page; every delivery of lesson content is logged for leak investigation. Providers publish library articles for the public, members, tiers or buyers; see [library](docs/phase-2/library.md). Members discuss in hub, tier and company spaces with reports and moderation; see [community](docs/phase-2/community.md). Prospects and members send enquiries that providers answer from an inbox; see [enquiries](docs/phase-2/enquiries.md).
 See [Phase 2 status](docs/phase-2/status.md) and [catalogue](docs/phase-2/catalogue.md).
 
 ## Phase 1 (local work complete)
@@ -101,5 +101,5 @@ with fresh provider sign-in and recent-session checks; see
 [account linking](docs/phase-1/account-linking.md).
 See [authentication setup](docs/phase-1/authentication.md).
 `npm run dev` remains a health shell; it does not enable test authentication or
-seed accounts. Apply migrations 003–021 in order to an
+seed accounts. Apply migrations 003–022 in order to an
 existing local database; fresh Compose volumes and CI apply them automatically.

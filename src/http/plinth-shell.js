@@ -170,6 +170,19 @@ clickAll('.resolve-report',async b=>{
   if(b.dataset.action==='suspend'&&!window.confirm('Remove this content and suspend its author from the hub?'))return false;
   await request('catalogue/reports/'+b.dataset.reportId+'/resolve','POST',{action:b.dataset.action});
 });
+formHandler('create-enquiry',async form=>{
+  const data=Object.fromEntries(new FormData(form));if(!data.requesterOrg)delete data.requesterOrg;
+  const created=await request('enquiries','POST',data);window.location.assign('/h/'+slug+'/enquiries/'+created.id);
+});
+formHandler('send-message',async form=>{
+  // The client id makes a retried send post once.
+  const clientId=form.dataset.clientId||(form.dataset.clientId=crypto.randomUUID());
+  await request('conversations/'+form.dataset.conversationId+'/messages','POST',{body:form.elements.body.value,clientId});
+  delete form.dataset.clientId;window.location.reload();
+});
+formHandler('enquiry-status',async form=>{await request('enquiries/'+form.dataset.enquiryId,'PATCH',{status:form.elements.status.value});window.location.reload();});
+// Opening a thread marks it read.
+{const thread=document.querySelector('ol.messages[data-conversation-id]');if(thread)request('conversations/'+thread.dataset.conversationId+'/read','PUT').catch(()=>{});}
 formHandler('create-organisation',async form=>{const org=await request('organisations','POST',Object.fromEntries(new FormData(form)));window.location.assign('/h/'+slug+'/organisations?org='+org.id);});
 formHandler('rename-organisation',form=>request('organisations/'+orgId,'PUT',Object.fromEntries(new FormData(form))));
 formHandler('accept-invitation',async form=>{const data=Object.fromEntries(new FormData(form));await request('organisations/'+encodeURIComponent(data.orgId)+'/accept','POST',{token:data.token});form.reset();window.location.assign('/h/'+slug+'/organisations');});

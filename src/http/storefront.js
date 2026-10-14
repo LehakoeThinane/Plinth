@@ -31,7 +31,7 @@ header{background:white;border-top:6px solid ${color};border-bottom:1px solid #d
 a{color:${color}}h2{margin-top:0}footer{color:#44556b;font-size:.9rem}
 </style>${session?'<script defer src="/assets/plinth-shell.js"></script>':''}</head>
 <body${session?` data-hub-id="${e(session.hubId)}" data-slug="${e(hub.slug)}" data-csrf="${e(session.csrfToken)}"`+Object.entries(data).map(([k,v])=>` data-${k}="${e(v)}"`).join(''):''}>
-<header><div class="wrap"><a href="/h/${e(hub.slug)}">${logo}</a><strong>${e(hub.display_name)}</strong><a href="/h/${e(hub.slug)}/library">Library</a>${session?`<a href="/h/${e(hub.slug)}/learning">My learning</a>`:signIn?`<a href="/h/${e(hub.slug)}/sign-in">Sign in</a><a href="/h/${e(hub.slug)}/sign-in?view=join">Join hub</a>`:''}</div></header>
+<header><div class="wrap"><a href="/h/${e(hub.slug)}">${logo}</a><strong>${e(hub.display_name)}</strong><a href="/h/${e(hub.slug)}/library">Library</a><a href="/h/${e(hub.slug)}/enquiries">Enquire about bespoke work</a>${session?`<a href="/h/${e(hub.slug)}/learning">My learning</a>`:signIn?`<a href="/h/${e(hub.slug)}/sign-in">Sign in</a><a href="/h/${e(hub.slug)}/sign-in?view=join">Join hub</a>`:''}</div></header>
 <main class="wrap">${main}<p id="status" role="status" aria-live="polite"></p></main><footer class="wrap">Powered by Plinth</footer></body></html>`;
 }
 export function renderStorefront(hub,{signIn=false,products=null}={}) {

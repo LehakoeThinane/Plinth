@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import { renderStorefront,renderProductPage,renderLessonPage,renderLibrary,renderLibraryItem } from './storefront.js';
-import { matchCommunityApi } from './community-routes.js';
+import { matchCommunityApi,matchMessagingApi } from './community-routes.js';
 import { readFile } from 'node:fs/promises';
 import { renderApplicationShell } from './application-shell.js';
 import { clearLoginCookie,isRecentSignIn } from '../modules/identity/hosted-sign-in.js';
@@ -30,7 +30,7 @@ async function readObject(req,maxBytes=4096) {
  * No default authenticator, development header override or public token issuer.
  * This endpoint returns an ACCESS DECISION only, never media/content.
  */
-export function createApi({authenticate,accessForPrincipal,consentForPrincipal,noticeForPrincipal,hubForPrincipal,identityForPrincipal,organisationForPrincipal,logoForPrincipal,brandingStore,domainForPrincipal,orgDomainsForPrincipal,catalogueForPrincipal,publicCatalogue,learningForPrincipal,libraryForPrincipal,communityForPrincipal,moderationForPrincipal,publicHubs,browserSessions,hostedSignIn,accountLinks,onError=()=>{}}) {
+export function createApi({authenticate,accessForPrincipal,consentForPrincipal,noticeForPrincipal,hubForPrincipal,identityForPrincipal,organisationForPrincipal,logoForPrincipal,brandingStore,domainForPrincipal,orgDomainsForPrincipal,catalogueForPrincipal,publicCatalogue,learningForPrincipal,libraryForPrincipal,communityForPrincipal,moderationForPrincipal,messagingForPrincipal,publicHubs,browserSessions,hostedSignIn,accountLinks,onError=()=>{}}) {
   if(typeof authenticate!=='function'||typeof accessForPrincipal!=='function')throw Error('Verified authentication adapter required');
   return createServer(async(req,res)=>{
     const send=(status,body)=>{res.writeHead(status,{'content-type':'application/json','cache-control':'no-store'});res.end(JSON.stringify(body));};
@@ -59,6 +59,22 @@ export function createApi({authenticate,accessForPrincipal,consentForPrincipal,n
         const script=await readFile(new URL('./plinth-shell.js',import.meta.url),'utf8');
         res.writeHead(200,{'content-type':'text/javascript; charset=utf-8','x-content-type-options':'nosniff','cache-control':'no-cache'});
         return res.end(script);
+      }
+      const enquiryPage=path.match(/^\/h\/([a-z0-9-]+)\/enquiries(?:\/([0-9a-f-]{36}))?$/);
+      if(browserSessions && publicHubs && hubForPrincipal && messagingForPrincipal && req.method==='GET' && enquiryPage && (!enquiryPage[2]||uuid.test(enquiryPage[2]))) {
+        const hub=await publicHubs.resolve({slug:enquiryPage[1]});
+        const principal=await browserSessions.principal(req);
+        if(!principal) {
+          if(hostedSignIn){res.writeHead(303,{'location':'/h/'+hub.slug+'/sign-in?view=enquiries','cache-control':'no-store'});return res.end();}
+          return send(401,{error:'unauthenticated'});
+        }
+        if(principal.hubId!==hub.id)return send(404,{error:'not_found'});
+        // Prospects may enquire without joining, so membership is optional here.
+        const membership=await hubForPrincipal(principal).membership(hub.id).catch(error=>{if(error.status===404)return null;throw error;});
+        const messaging=messagingForPrincipal(principal);
+        const enquiries=enquiryPage[2]?{thread:await messaging.enquiry(hub.id,enquiryPage[2])}:{inbox:await messaging.enquiries(hub.id)};
+        const html=renderApplicationShell({hub,view:enquiryPage[2]?'enquiry':'enquiries',membership,enquiries:{...enquiries,userId:principal.userId},consents:[],csrfToken:principal.csrfToken});
+        res.writeHead(200,htmlHeaders);return res.end(html);
       }
       const communityPage=path.match(/^\/h\/([a-z0-9-]+)\/(community|admin\/community)(?:\/(spaces|posts)\/([0-9a-f-]{36}))?$/);
       if(browserSessions && publicHubs && hubForPrincipal && communityForPrincipal && moderationForPrincipal && req.method==='GET' && communityPage &&
@@ -218,6 +234,7 @@ export function createApi({authenticate,accessForPrincipal,consentForPrincipal,n
       const progress=path.match(/^\/v1\/hubs\/([0-9a-f-]{36})\/lessons\/([0-9a-f-]{36})\/progress$/);
       const progressRoute=progress && uuid.test(progress[1]) && uuid.test(progress[2]) && req.method==='PUT';
       const communityRoute=communityForPrincipal&&moderationForPrincipal?matchCommunityApi(path,req.method):null;
+      const messagingRoute=messagingForPrincipal?matchMessagingApi(path,req.method):null;
       const libraryAdmin=path.match(/^\/v1\/hubs\/([0-9a-f-]{36})\/catalogue\/library(?:\/([0-9a-f-]{36})(?:\/(publish|archive))?)?$/);
       const libraryAdminRoute=libraryForPrincipal && libraryAdmin && uuid.test(libraryAdmin[1]) && (!libraryAdmin[2]||uuid.test(libraryAdmin[2])) &&
         (!libraryAdmin[2]?['GET','POST'].includes(req.method):!libraryAdmin[3]?['GET','PATCH'].includes(req.method):req.method==='POST');
@@ -244,12 +261,12 @@ export function createApi({authenticate,accessForPrincipal,consentForPrincipal,n
       const createHub=hubForPrincipal && path==='/v1/hubs' && req.method==='POST';
       const hubRoute=hubForPrincipal && hubAction && uuid.test(hubAction[1]) &&
         req.method===({join:'POST',membership:'GET',branding:'PUT'})[hubAction[2]];
-      if(!communityRoute && !libraryAdminRoute && !progressRoute && !learningRoute && !catalogueRoute && !domainRoute &&!orgDomainRoute &&!logoRoute && !noticeRoute && !readAccount && !linkRoute && !orgRoute &&!sessionRoute && !createHub && !hubRoute && !consentRoute && (req.method!=='GET'||!match||!uuid.test(match[1])||!uuid.test(match[2])))return send(404,{error:'not_found'});
+      if(!messagingRoute && !communityRoute && !libraryAdminRoute && !progressRoute && !learningRoute && !catalogueRoute && !domainRoute &&!orgDomainRoute &&!logoRoute && !noticeRoute && !readAccount && !linkRoute && !orgRoute &&!sessionRoute && !createHub && !hubRoute && !consentRoute && (req.method!=='GET'||!match||!uuid.test(match[1])||!uuid.test(match[2])))return send(404,{error:'not_found'});
       const bearer=req.headers.authorization?.match(/^Bearer ([^\s]+)$/)?.[1];
       if(req.headers.authorization && !bearer)return send(401,{error:'unauthenticated'});
       const principal=bearer?await authenticate(bearer):await browserSessions?.principal(req);
       if(!principal||!uuid.test(principal.userId??''))return send(401,{error:'unauthenticated'});
-      const targetHub=communityRoute?communityRoute.hubId:libraryAdminRoute?libraryAdmin[1]:progressRoute?progress[1]:learningRoute?learning[1]:catalogueRoute?catalogue[1]:domainRoute?domain[1]:orgDomainRoute?orgDomain[1]:logoRoute?logo[1]:noticeRoute?notice[1]:readAccount?accountRoute[1]:linkRoute?links[1]:orgRoute?org[1]:sessionRoute?sessionAction[1]:hubRoute?hubAction[1]:consentRoute?consent[1]:match?.[1];
+      const targetHub=messagingRoute?messagingRoute.hubId:communityRoute?communityRoute.hubId:libraryAdminRoute?libraryAdmin[1]:progressRoute?progress[1]:learningRoute?learning[1]:catalogueRoute?catalogue[1]:domainRoute?domain[1]:orgDomainRoute?orgDomain[1]:logoRoute?logo[1]:noticeRoute?notice[1]:readAccount?accountRoute[1]:linkRoute?links[1]:orgRoute?org[1]:sessionRoute?sessionAction[1]:hubRoute?hubAction[1]:consentRoute?consent[1]:match?.[1];
       if(principal.sessionHash && targetHub && principal.hubId!==targetHub)return send(404,{error:'not_found'});
       if(principal.sessionHash && !['GET','HEAD'].includes(req.method))browserSessions.checkMutation(req,principal);
       if(domainRoute) {
@@ -261,6 +278,10 @@ export function createApi({authenticate,accessForPrincipal,consentForPrincipal,n
       if(progressRoute)return send(200,await accessForPrincipal(principal).recordProgress({hubId:progress[1],userId:principal.userId,
         lessonId:progress[2],update:await readObject(req),idempotencyKey:req.headers['idempotency-key']}));
       if(learningRoute)return send(200,await learningForPrincipal(principal).learning(learning[1]));
+      if(messagingRoute) {
+        const result=await messagingRoute.run({messaging:messagingForPrincipal(principal),query:requestUrl.searchParams,body:()=>readObject(req,32768)});
+        return send(result.status,result.body);
+      }
       if(communityRoute) {
         const result=await communityRoute.run({community:communityForPrincipal(principal),moderation:moderationForPrincipal(principal),
           query:requestUrl.searchParams,body:()=>readObject(req,32768)});

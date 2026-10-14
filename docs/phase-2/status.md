@@ -116,8 +116,23 @@ Migration 021 adds the `community` schema and the moderator role.
 Validation: `npm run verify` passed 206 checks; the full PostgreSQL 17 suite
 passed 137 checks (five new) on three consecutive runs. See [community](community.md).
 
+## Eighth implemented slice: enquiries
+
+Signed-in people, including prospects, send enquiries that open a conversation
+with the provider; hub owners/admins work them from an inbox with unread counts
+and statuses. Messages are idempotent by client id and closed enquiries are
+read-only. Migration 022 adds the shared `messaging` schema with definer-backed
+policies so nobody can join, claim or write into another person's conversation;
+staff can read enquiry conversations only.
+
+Validation: `npm run verify` passed 210 checks; the full PostgreSQL 17 suite
+passed 141 checks (four new) on three consecutive runs. A security gap in the
+first draft (self-joining a conversation as requester) was found in review and
+closed before testing; tests now attack it directly. See [enquiries](enquiries.md).
+
 ## Next
 
-Continuing in order: enquiries (#3, the base for messaging #7), then
-membership-tier set-up (#8). Protected file assets and checkout remain blocked on storage and the
+Membership-tier set-up (#8): providers define tiers and their benefits, which
+the library and community tier visibility already honour. Subscription payments
+wait for the payment provider decision. Protected file assets and checkout remain blocked on storage and the
 payment provider decision.
