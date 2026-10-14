@@ -31,7 +31,7 @@ header{background:white;border-top:6px solid ${color};border-bottom:1px solid #d
 a{color:${color}}h2{margin-top:0}footer{color:#44556b;font-size:.9rem}
 </style>${session?'<script defer src="/assets/plinth-shell.js"></script>':''}</head>
 <body${session?` data-hub-id="${e(session.hubId)}" data-slug="${e(hub.slug)}" data-csrf="${e(session.csrfToken)}"`+Object.entries(data).map(([k,v])=>` data-${k}="${e(v)}"`).join(''):''}>
-<header><div class="wrap"><a href="/h/${e(hub.slug)}">${logo}</a><strong>${e(hub.display_name)}</strong><a href="/h/${e(hub.slug)}/library">Library</a><a href="/h/${e(hub.slug)}/enquiries">Enquire about bespoke work</a>${session?`<a href="/h/${e(hub.slug)}/learning">My learning</a>`:signIn?`<a href="/h/${e(hub.slug)}/sign-in">Sign in</a><a href="/h/${e(hub.slug)}/sign-in?view=join">Join hub</a>`:''}</div></header>
+<header><div class="wrap"><a href="/h/${e(hub.slug)}">${logo}</a><strong>${e(hub.display_name)}</strong><a href="/h/${e(hub.slug)}/library">Library</a><a href="/h/${e(hub.slug)}/membership">Membership</a><a href="/h/${e(hub.slug)}/enquiries">Enquire about bespoke work</a>${session?`<a href="/h/${e(hub.slug)}/learning">My learning</a>`:signIn?`<a href="/h/${e(hub.slug)}/sign-in">Sign in</a><a href="/h/${e(hub.slug)}/sign-in?view=join">Join hub</a>`:''}</div></header>
 <main class="wrap">${main}<p id="status" role="status" aria-live="polite"></p></main><footer class="wrap">Powered by Plinth</footer></body></html>`;
 }
 export function renderStorefront(hub,{signIn=false,products=null}={}) {
@@ -99,4 +99,13 @@ export function renderLibraryItem(hub,{decision,reason,item},{signIn=false}={}) 
   return layout(hub,{signIn,title:item.title+' · '+hub.display_name,main:`<section class="intro"><p><a href="/h/${e(hub.slug)}/library">Library</a></p>
 <p class="eyebrow">${e(itemLabel({...item,product_title:item.productTitle}))}</p><h1>${e(item.title)}</h1><p class="description">${e(item.summary)}</p></section>
 ${decision==='allowed'?`<article class="card">${renderBody(item.body)||'<p>This item has no text yet.</p>'}</article>`:locked}`});
+}
+const benefitLabels={product:'Course',space:'Community space',library:'Library'};
+export function renderMembership(hub,{tiers},{signIn=false}={}) {
+  const cards=tiers.map(t=>`<li><p class="eyebrow">Tier ${e(t.rank)}</p><h3>${e(t.name)}</h3>
+    <p class="price">${e(formatRand(t.amount_cents))} per ${t.billing_interval==='year'?'year':'month'}</p><p>${e(t.description)}</p>
+    <ul>${t.benefits.map(b=>`<li>${e(benefitLabels[b.target_type]??'')}: ${e(b.title)}</li>`).join('')||'<li>Benefits are being added.</li>'}</ul></li>`).join('');
+  return layout(hub,{signIn,title:'Membership · '+hub.display_name,main:`<section class="intro"><p class="eyebrow">Membership</p><h1>Choose how you take part</h1>
+<p class="description">Every member can join the hub for free. Tiers add courses, spaces and library items.</p></section>
+<section class="card">${cards?`<ul class="shelf">${cards}</ul><p>Subscriptions open soon.</p>`:'<p>This hub does not offer membership tiers.</p>'}</section>`});
 }

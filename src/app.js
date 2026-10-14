@@ -23,6 +23,7 @@ import { LibraryRepository } from './db/library-repository.js';
 import { CommunityRepository } from './db/community-repository.js';
 import { CommunityService } from './modules/community/community-service.js';
 import { MessagingRepository } from './db/messaging-repository.js';
+import { TierRepository } from './db/tier-repository.js';
 /** Composition root: infrastructure is injected and owned by the caller. */
 export function createApplication({pool,authenticate,browserSessions,hostedSignIn,accountLinks,brandingStore,domainVerificationPool,resolveDomainTxt,cache=new MemoryAccessCache(),onError}) {
   if(!pool || typeof authenticate!=='function')throw Error('Database and verified authentication adapters are required');
@@ -36,7 +37,8 @@ export function createApplication({pool,authenticate,browserSessions,hostedSignI
     libraryForPrincipal:principal=>new LibraryRepository(database,principal?.userId??null),
     communityForPrincipal:principal=>new CommunityService({access:new AccessService(new PostgresAccessRepository(database,principal.userId),cache),userId:principal.userId}),
     moderationForPrincipal:principal=>new CommunityRepository(database,principal.userId),
-    messagingForPrincipal:principal=>new MessagingRepository(database,principal.userId),logoForPrincipal:brandingStore?principal=>new LogoService({store:brandingStore,hubs:new HubRepository(database,principal.userId)}):undefined,onError,noticeForPrincipal:principal=>new NoticeRepository(database,principal.userId),identityForPrincipal:principal=>new IdentityRepository(database,principal.userId),
+    messagingForPrincipal:principal=>new MessagingRepository(database,principal.userId),
+    tierForPrincipal:principal=>new TierRepository(database,principal.userId),publicTiers:new TierRepository(database),logoForPrincipal:brandingStore?principal=>new LogoService({store:brandingStore,hubs:new HubRepository(database,principal.userId)}):undefined,onError,noticeForPrincipal:principal=>new NoticeRepository(database,principal.userId),identityForPrincipal:principal=>new IdentityRepository(database,principal.userId),
     organisationForPrincipal:principal=>new OrganisationRepository(database,principal.userId),publicHubs:new HubRepository(database),hubForPrincipal:principal=>new HubRepository(database,principal.userId),consentForPrincipal:principal=>new ConsentRepository(database,principal.userId),accessForPrincipal:principal=>
     new AccessService(new PostgresAccessRepository(database,principal.userId),cache)});
 }

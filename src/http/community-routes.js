@@ -25,3 +25,12 @@ export const matchMessagingApi=routeTable([
   ['POST',`conversations/${id}/messages`,async(c,h,v)=>[201,await c.messaging.send(h,v,await c.body())]],
   ['PUT',`conversations/${id}/read`,(c,h,v)=>c.messaging.markRead(h,v)]
 ]);
+export const matchTierApi=routeTable([
+  ['GET',`catalogue/tiers`,async(c,h)=>({tiers:await c.tiers.list(h)})],
+  ['POST',`catalogue/tiers`,async(c,h)=>[201,await c.tiers.create(h,await c.body())]],
+  ['GET',`catalogue/tiers/${id}`,(c,h,t)=>c.tiers.get(h,t)],
+  ['PATCH',`catalogue/tiers/${id}`,async(c,h,t)=>c.tiers.update(h,t,await c.body())],
+  ['POST',`catalogue/tiers/${id}/(publish|archive)`,(c,h,t,a)=>c.tiers.setStatus(h,t,a==='publish'?'published':'archived')],
+  ['POST',`catalogue/tiers/${id}/benefits`,async(c,h,t)=>[201,await c.tiers.addBenefit(h,t,await c.body())]],
+  ['DELETE',`catalogue/tiers/${id}/benefits/${id}`,(c,h,t,b)=>c.tiers.removeBenefit(h,t,b)]
+]);

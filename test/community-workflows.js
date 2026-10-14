@@ -26,7 +26,8 @@ export async function communityChecks({admin,app,db,hubId,userA,companyOrg,check
     spaces.tier=(await owner.createSpace(hubId,{title:'Inner circle',visibility:'tier'})).id;
     spaces.company=(await owner.createSpace(hubId,{title:'Absa cohort',visibility:'company',companyOrg})).id;
     await admin.query("INSERT INTO access.entitlements(hub_id,id,user_id,target_id,kind) VALUES($1,$2,$3,$4,'tier')",[hubId,randomUUID(),tierHolder,tier]);
-    await admin.query('INSERT INTO access.tier_benefits(hub_id,tier_id,target_id) VALUES($1,$2,$3)',[hubId,tier,spaces.tier]);
+    await admin.query("INSERT INTO commerce.tiers(hub_id,id,name,rank,amount_cents,billing_interval) VALUES($1,$2,'Community tier',91,10000,'month')",[hubId,tier]);
+    await admin.query("INSERT INTO access.tier_benefits(hub_id,tier_id,target_id,target_type) VALUES($1,$2,$3,'space')",[hubId,tier,spaces.tier]);
     assert.deepEqual(await visible(member),{[spaces.hub]:'allowed',[spaces.tier]:'locked'});
     assert.deepEqual(await visible(employee),{[spaces.hub]:'allowed',[spaces.tier]:'locked',[spaces.company]:'allowed'});
     assert.deepEqual(await visible(tierHolder),{[spaces.hub]:'allowed',[spaces.tier]:'allowed'});

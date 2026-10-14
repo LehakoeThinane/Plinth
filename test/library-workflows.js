@@ -39,7 +39,8 @@ export async function libraryChecks({admin,db,hubId,userA,companyOrg,check,base,
   });
   await check('library items open by visibility through the shared access decision',async()=>{
     await admin.query("INSERT INTO access.entitlements(hub_id,id,user_id,target_id,kind) VALUES($1,$2,$3,$4,'tier'),($1,$5,$6,$7,'product')",[hubId,randomUUID(),tierHolder,tier,randomUUID(),buyer,shelfProduct]);
-    await admin.query('INSERT INTO access.tier_benefits(hub_id,tier_id,target_id) VALUES($1,$2,$3)',[hubId,tier,items.tier]);
+    await admin.query("INSERT INTO commerce.tiers(hub_id,id,name,rank,amount_cents,billing_interval) VALUES($1,$2,'Library tier',90,10000,'month')",[hubId,tier]);
+    await admin.query("INSERT INTO access.tier_benefits(hub_id,tier_id,target_id,target_type) VALUES($1,$2,$3,'library')",[hubId,tier,items.tier]);
     const outcome=async(user,key)=>{const r=await open(user,items[key]);return r.decision==='locked'?'locked:'+r.reason:r.decision;};
     const allowed=await open(null,items.public);assert.equal(allowed.decision,'allowed');assert.ok(allowed.item.body.startsWith('public'));
     // Entitled items stay closed until their product is published.

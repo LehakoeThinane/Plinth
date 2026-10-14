@@ -24,7 +24,11 @@ group conversations between members will not be readable by hub staff.
 - Each message carries the client's own id; resending with the same id returns
   the original message instead of posting twice.
 - History loads backwards from the latest message (`before`, `limit`); each page
-  is returned oldest first.
+  is returned oldest first. Order and read state use a database sequence number,
+  not timestamps: wall clocks can step under time synchronisation, which made a
+  new message look already read (migration 024). `before` is the `seq` of the
+  oldest message shown. Two sends committing out of order in the same
+  conversation can still be marked read together; acceptable for this use.
 - A provider's first reply moves an `open` enquiry to `in_discussion`. Providers
   can set `open`, `in_discussion` or `closed`. A closed enquiry is read-only for
   everyone until reopened.

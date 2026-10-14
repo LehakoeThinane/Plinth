@@ -27,6 +27,7 @@ import { lessonChecks } from './lesson-workflows.js';
 import { libraryChecks } from './library-workflows.js';
 import { communityChecks } from './community-workflows.js';
 import { enquiryChecks } from './enquiry-workflows.js';
+import { tierChecks } from './tier-workflows.js';
 import { LocalBrandingStore } from '../src/storage/local-branding.js';
 import { mkdir,mkdtemp,rm } from 'node:fs/promises';
 import { resolve,relative,isAbsolute } from 'node:path';
@@ -399,6 +400,7 @@ try {
   await libraryChecks({admin,db,hubId:createdHub,userA,companyOrg:orgA,check,base,fetch,slug:createdSlug,testUsers});
   await communityChecks({admin,app,db,hubId:createdHub,userA,companyOrg:orgA,check,base,fetch,slug:createdSlug,testUsers});
   await enquiryChecks({admin,db,hubId:createdHub,userA,companyOrg:orgA,check,base,fetch,slug:createdSlug,testUsers});
+  await tierChecks({admin,db,hubId:createdHub,userA,companyOrg:orgA,check,base,fetch,slug:createdSlug,testUsers});
   const browserHeaders={host:'learn-a.example',origin:'https://learn-a.example'};
   await check('browser session exchange requires a verified bearer and exact trusted origin',async()=>{
     const sessionUrl=base+'/v1/hubs/'+a+'/session';
@@ -549,6 +551,7 @@ try {
   await admin.query('DELETE FROM identity.users WHERE id=ANY($1::uuid[])',[testUsers]);
   await admin.query('DELETE FROM library.items WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM access.tier_benefits WHERE hub_id=ANY($1::uuid[])',[testHubs]);
+  await admin.query('DELETE FROM commerce.tiers WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM catalogue.plans WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM catalogue.lessons WHERE hub_id=ANY($1::uuid[])',[testHubs]);
   await admin.query('DELETE FROM catalogue.modules WHERE hub_id=ANY($1::uuid[])',[testHubs]);

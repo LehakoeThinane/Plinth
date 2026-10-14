@@ -130,9 +130,28 @@ passed 141 checks (four new) on three consecutive runs. A security gap in the
 first draft (self-joining a conversation as requester) was found in review and
 closed before testing; tests now attack it directly. See [enquiries](enquiries.md).
 
+## Ninth implemented slice: membership tiers (set-up)
+
+Providers define ranked tiers with fixed published prices and typed benefits
+(paid products, tier spaces, tier/buyer library items), checked against the real
+items by the database. Tier holders gain and lose access immediately through the
+existing decisions. A public Membership page compares published tiers;
+subscribing waits for the payment provider. Migration 023 adds `commerce.tiers`
+and typed, tier-linked benefits.
+
+Messaging fix in the same push: enquiry unread counts and history order now use
+a database sequence instead of timestamps (migration 024). An intermittent test
+failure was traced to the Docker VM's clock being stepped (database clock 0.3 s
+behind the host earlier, 0.38 s ahead later), which made a new message look
+already read. Real servers can step clocks too, so this was a genuine bug.
+
+Validation: `npm run verify` passed 213 checks; the full PostgreSQL 17 suite
+passed 144 checks (three new) on four consecutive runs. See [tiers](tiers.md).
+
 ## Next
 
-Membership-tier set-up (#8): providers define tiers and their benefits, which
-the library and community tier visibility already honour. Subscription payments
-wait for the payment provider decision. Protected file assets and checkout remain blocked on storage and the
+The four locally buildable launch requirements are now in place: library,
+community, enquiries and tier set-up. What remains for launch depends on outside
+decisions: payments (checkout, subscriptions, seats), media storage (video,
+audio, PDF assets) and the AWS/Auth0 accounts (staging, real sign-in). Protected file assets and checkout remain blocked on storage and the
 payment provider decision.

@@ -170,6 +170,29 @@ clickAll('.resolve-report',async b=>{
   if(b.dataset.action==='suspend'&&!window.confirm('Remove this content and suspend its author from the hub?'))return false;
   await request('catalogue/reports/'+b.dataset.reportId+'/resolve','POST',{action:b.dataset.action});
 });
+function tierFields(form) {
+  const data={name:form.elements.name.value,description:form.elements.description.value,rank:Number(form.elements.rank.value)};
+  if(!form.elements.amount.disabled) {
+    const amount=form.elements.amount.value.replace(',','.');
+    if(!/^[0-9]+(\.[0-9]{1,2})?$/.test(amount))throw new Error('Enter the price in rand, for example 200.00.');
+    const [whole,fraction='']=amount.split('.');data.amountCents=Number(whole)*100+Number(fraction.padEnd(2,'0'));data.interval=form.elements.interval.value;
+  }
+  return data;
+}
+const tierError=error=>error.status===409?new Error('Another tier already uses that rank, or the change is not allowed for a published tier.'):error;
+formHandler('create-tier',async form=>{
+  try{const created=await request('catalogue/tiers','POST',tierFields(form));window.location.assign('/h/'+slug+'/admin/tiers/'+created.id);}catch(error){throw tierError(error);}
+});
+formHandler('tier-details',async form=>{try{await request('catalogue/tiers/'+form.dataset.tierId,'PATCH',tierFields(form));}catch(error){throw tierError(error);}});
+formHandler('add-benefit',async form=>{
+  const [targetType,targetId]=form.elements.benefit.value.split(':');
+  await request('catalogue/tiers/'+form.dataset.tierId+'/benefits','POST',{targetType,targetId});window.location.reload();
+});
+clickAll('.remove-benefit',b=>request('catalogue/tiers/'+document.querySelector('#tier-details').dataset.tierId+'/benefits/'+b.dataset.targetId,'DELETE'));
+clickAll('.tier-status',async b=>{
+  if(b.dataset.action==='archive'&&!window.confirm('Archive this tier? It stops being offered and cannot be reopened.'))return false;
+  await request('catalogue/tiers/'+document.querySelector('#tier-details').dataset.tierId+'/'+b.dataset.action,'POST');
+});
 formHandler('create-enquiry',async form=>{
   const data=Object.fromEntries(new FormData(form));if(!data.requesterOrg)delete data.requesterOrg;
   const created=await request('enquiries','POST',data);window.location.assign('/h/'+slug+'/enquiries/'+created.id);
