@@ -88,7 +88,24 @@ deletes and forged entries, maintenance-only retention with dry-run counts,
 period validation, and HTTP/editor visibility. See
 [lesson content and progress](lessons.md#lesson-open-log).
 
+## Sixth implemented slice: library (articles)
+
+Providers write, publish and archive library articles with `public`, `members`,
+`tier` or buyers-only visibility and topics. Items open through the same access
+decision as lessons, with locked previews explaining how to unlock them, and the
+public library pages by date and filters by topic. Migration 020 adds
+`library.items`. Podcasts and videos wait for media storage.
+
+Validation: `npm run verify` passed 201 checks; the full PostgreSQL 17 suite
+passed 132 checks (four new) on three consecutive runs. Coverage includes
+admin-only authoring, company-product and topic rejection (including at the
+database), every visibility outcome for members, outsiders, tier holders, buyers,
+suspended members and staff, unpublished linked products, archive behaviour,
+paging and topic filters, and HTTP/admin pages with escaping. See [library](library.md).
+
 ## Next
 
-Protected file assets (needs storage) and checkout (needs the payment provider
-decision). Locally buildable work for the first-sale milestone is otherwise complete.
+Working through the remaining locally buildable launch requirements in order:
+community (#6), enquiries (#3, the base for messaging #7), then membership-tier
+set-up (#8). Protected file assets and checkout remain blocked on storage and the
+payment provider decision.

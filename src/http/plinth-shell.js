@@ -123,6 +123,28 @@ document.querySelector('#complete-lesson')?.addEventListener('click',async event
   }
   button.disabled=false;
 });
+function libraryItem(form) {
+  const data=Object.fromEntries(new FormData(form));
+  data.topics=data.topics.split(',').map(t=>t.trim().toLowerCase()).filter(Boolean);
+  if(data.visibility==='entitled'){if(!data.requiredProductId)throw new Error('Choose the product whose buyers can read this item.');}
+  else delete data.requiredProductId;
+  return data;
+}
+const libraryError=error=>error.status===400?new Error('Check the item. Topics are lowercase words joined by hyphens, at most five.'):error;
+formHandler('create-library-item',async form=>{
+  try{const created=await request('catalogue/library','POST',libraryItem(form));window.location.assign('/h/'+slug+'/admin/library/'+created.id);}
+  catch(error){throw libraryError(error);}
+});
+formHandler('library-item',async form=>{
+  try{await request('catalogue/library/'+form.dataset.itemId,'PATCH',libraryItem(form));}catch(error){throw libraryError(error);}
+});
+for(const button of document.querySelectorAll('.library-status'))button.addEventListener('click',async()=>{
+  const id=document.querySelector('#library-item').dataset.itemId,action=button.dataset.action;
+  if(action==='archive'&&!window.confirm('Archive this item? It will disappear from the library and cannot return to draft.'))return;
+  button.disabled=true;
+  try{await request('catalogue/library/'+id+'/'+action,'POST');window.location.reload();}
+  catch(error){status.textContent=error.message;button.disabled=false;}
+});
 formHandler('create-organisation',async form=>{const org=await request('organisations','POST',Object.fromEntries(new FormData(form)));window.location.assign('/h/'+slug+'/organisations?org='+org.id);});
 formHandler('rename-organisation',form=>request('organisations/'+orgId,'PUT',Object.fromEntries(new FormData(form))));
 formHandler('accept-invitation',async form=>{const data=Object.fromEntries(new FormData(form));await request('organisations/'+encodeURIComponent(data.orgId)+'/accept','POST',{token:data.token});form.reset();window.location.assign('/h/'+slug+'/organisations');});

@@ -1,5 +1,5 @@
 import { createServer } from 'node:http';
-import { renderStorefront,renderProductPage,renderLessonPage } from './storefront.js';
+import { renderStorefront,renderProductPage,renderLessonPage,renderLibrary,renderLibraryItem } from './storefront.js';
 import { readFile } from 'node:fs/promises';
 import { renderApplicationShell } from './application-shell.js';
 import { clearLoginCookie,isRecentSignIn } from '../modules/identity/hosted-sign-in.js';
@@ -29,7 +29,7 @@ async function readObject(req,maxBytes=4096) {
  * No default authenticator, development header override or public token issuer.
  * This endpoint returns an ACCESS DECISION only, never media/content.
  */
-export function createApi({authenticate,accessForPrincipal,consentForPrincipal,noticeForPrincipal,hubForPrincipal,identityForPrincipal,organisationForPrincipal,logoForPrincipal,brandingStore,domainForPrincipal,orgDomainsForPrincipal,catalogueForPrincipal,publicCatalogue,learningForPrincipal,publicHubs,browserSessions,hostedSignIn,accountLinks,onError=()=>{}}) {
+export function createApi({authenticate,accessForPrincipal,consentForPrincipal,noticeForPrincipal,hubForPrincipal,identityForPrincipal,organisationForPrincipal,logoForPrincipal,brandingStore,domainForPrincipal,orgDomainsForPrincipal,catalogueForPrincipal,publicCatalogue,learningForPrincipal,libraryForPrincipal,publicHubs,browserSessions,hostedSignIn,accountLinks,onError=()=>{}}) {
   if(typeof authenticate!=='function'||typeof accessForPrincipal!=='function')throw Error('Verified authentication adapter required');
   return createServer(async(req,res)=>{
     const send=(status,body)=>{res.writeHead(status,{'content-type':'application/json','cache-control':'no-store'});res.end(JSON.stringify(body));};
@@ -59,9 +59,9 @@ export function createApi({authenticate,accessForPrincipal,consentForPrincipal,n
         res.writeHead(200,{'content-type':'text/javascript; charset=utf-8','x-content-type-options':'nosniff','cache-control':'no-cache'});
         return res.end(script);
       }
-      const adminProducts=path.match(/^\/h\/([a-z0-9-]+)\/admin\/products(?:\/([0-9a-f-]{36}))?$/);
-      if(browserSessions && publicHubs && hubForPrincipal && catalogueForPrincipal && req.method==='GET' && adminProducts && (!adminProducts[2]||uuid.test(adminProducts[2]))) {
-        const hub=await publicHubs.resolve({slug:adminProducts[1]});
+      const adminPages=path.match(/^\/h\/([a-z0-9-]+)\/admin\/(products|library)(?:\/([0-9a-f-]{36}))?$/);
+      if(browserSessions && publicHubs && hubForPrincipal && catalogueForPrincipal && libraryForPrincipal && req.method==='GET' && adminPages && (!adminPages[3]||uuid.test(adminPages[3]))) {
+        const hub=await publicHubs.resolve({slug:adminPages[1]}),entryId=adminPages[3];
         const principal=await browserSessions.principal(req);
         if(!principal) {
           if(hostedSignIn){res.writeHead(303,{'location':'/h/'+hub.slug+'/sign-in?view=admin','cache-control':'no-store'});return res.end();}
@@ -70,9 +70,16 @@ export function createApi({authenticate,accessForPrincipal,consentForPrincipal,n
         if(principal.hubId!==hub.id)return send(404,{error:'not_found'});
         const membership=await hubForPrincipal(principal).membership(hub.id).catch(error=>{if(error.status===404)return null;throw error;});
         if(!['owner','admin'].includes(membership?.role))return send(404,{error:'not_found'});
-        const products=catalogueForPrincipal(principal);
-        const catalogue=adminProducts[2]?{detail:await products.get(hub.id,adminProducts[2]),opens:(await products.opens(hub.id,adminProducts[2],{limit:20})).opens}:{products:await products.list(hub.id)};
-        const html=renderApplicationShell({hub,view:adminProducts[2]?'product':'products',membership,catalogue,consents:[],csrfToken:principal.csrfToken});
+        let view,catalogue;
+        if(adminPages[2]==='library') {
+          const library=libraryForPrincipal(principal);
+          view=entryId?'library-item':'library';
+          catalogue=entryId?{item:await library.get(hub.id,entryId),products:await catalogueForPrincipal(principal).list(hub.id)}:{items:await library.list(hub.id)};
+        } else {
+          const products=catalogueForPrincipal(principal);view=entryId?'product':'products';
+          catalogue=entryId?{detail:await products.get(hub.id,entryId),opens:(await products.opens(hub.id,entryId,{limit:20})).opens}:{products:await products.list(hub.id)};
+        }
+        const html=renderApplicationShell({hub,view,membership,catalogue,consents:[],csrfToken:principal.csrfToken});
         res.writeHead(200,htmlHeaders);return res.end(html);
       }
       const shell=path.match(/^\/h\/([a-z0-9-]+)\/(member|admin|join|create-hub|organisations|account|learning)$/);
@@ -117,20 +124,43 @@ export function createApi({authenticate,accessForPrincipal,consentForPrincipal,n
       if(publicHubs && req.method==='GET' && path==='/v1/hubs/resolve') {
         return send(200,await publicHubs.resolve({slug:requestUrl.searchParams.get('slug'),hostname:requestUrl.searchParams.get('hostname')}));
       }
-      // Lessons accept an optional identity: free (open) lessons work signed out.
-      // A malformed or invalid bearer is still rejected, never treated as anonymous.
+      // Lessons and library items accept an optional identity: free content works
+      // signed out. A malformed or invalid bearer is still rejected, never treated
+      // as anonymous, and a session for another hub is not found.
+      const optionalPrincipal=async(api,hubId)=>{
+        if(req.headers.authorization) {
+          const token=api&&req.headers.authorization.match(/^Bearer ([^\s]+)$/)?.[1];
+          const principal=token?await authenticate(token):null;
+          if(!principal||!uuid.test(principal.userId??''))throw Object.assign(new Error('Unauthenticated'),{status:401});
+          return principal;
+        }
+        const principal=await browserSessions?.principal(req)??null;
+        if(principal?.sessionHash && principal.hubId!==hubId)throw Object.assign(new Error('Not found'),{status:404});
+        return principal;
+      };
+      const libraryApi=path.match(/^\/v1\/hubs\/([0-9a-f-]{36})\/library(?:\/([0-9a-f-]{36}))?$/);
+      const libraryPage=path.match(/^\/h\/([a-z0-9-]+)\/library(?:\/([0-9a-f-]{36}))?$/);
+      if(libraryForPrincipal && req.method==='GET' && ((libraryApi && uuid.test(libraryApi[1])) || (libraryPage && publicHubs)) && [libraryApi?.[2],libraryPage?.[2]].every(id=>!id||uuid.test(id))) {
+        const hub=libraryApi?null:await publicHubs.resolve({slug:libraryPage[1]});
+        const hubId=libraryApi?libraryApi[1]:hub.id,itemId=(libraryApi??libraryPage)[2];
+        if(!itemId) {
+          const page=await libraryForPrincipal(null).browse(hubId,{topic:requestUrl.searchParams.get('topic'),before:requestUrl.searchParams.get('before'),
+            limit:requestUrl.searchParams.get('limit')??24});
+          if(libraryApi)return send(200,page);
+          res.writeHead(200,htmlHeaders);return res.end(renderLibrary(hub,page,{signIn:Boolean(hostedSignIn),topic:requestUrl.searchParams.get('topic')}));
+        }
+        const principal=await optionalPrincipal(Boolean(libraryApi),hubId);
+        const result=await accessForPrincipal(principal??{userId:null}).openLibraryItem({hubId,userId:principal?.userId??null,itemId});
+        if(result.decision==='not_found')return send(404,{error:'not_found'});
+        if(libraryApi)return send(200,result);
+        res.writeHead(200,htmlHeaders);return res.end(renderLibraryItem(hub,result,{signIn:Boolean(hostedSignIn)}));
+      }
       const lessonApi=path.match(/^\/v1\/hubs\/([0-9a-f-]{36})\/lessons\/([0-9a-f-]{36})$/);
       const lessonPage=path.match(/^\/h\/([a-z0-9-]+)\/lessons\/([0-9a-f-]{36})$/);
       if(req.method==='GET' && ((lessonApi && uuid.test(lessonApi[1]) && uuid.test(lessonApi[2])) || (lessonPage && publicHubs && uuid.test(lessonPage[2])))) {
         const hub=lessonApi?null:await publicHubs.resolve({slug:lessonPage[1]});
         const hubId=lessonApi?lessonApi[1]:hub.id,lessonId=(lessonApi??lessonPage)[2];
-        let principal=null;
-        if(req.headers.authorization) {
-          const token=lessonApi&&req.headers.authorization.match(/^Bearer ([^\s]+)$/)?.[1];
-          principal=token?await authenticate(token):null;
-          if(!principal||!uuid.test(principal.userId??''))return send(401,{error:'unauthenticated'});
-        } else principal=await browserSessions?.principal(req)??null;
-        if(principal?.sessionHash && principal.hubId!==hubId)return send(404,{error:'not_found'});
+        const principal=await optionalPrincipal(Boolean(lessonApi),hubId);
         const result=await accessForPrincipal(principal??{userId:null}).open({hubId,userId:principal?.userId??null,lessonId,device:req.headers['user-agent']??null});
         if(result.decision==='not_found')return send(404,{error:'not_found'});
         if(lessonApi)return send(200,result);
@@ -158,6 +188,9 @@ export function createApi({authenticate,accessForPrincipal,consentForPrincipal,n
       const readAccount=accountRoute && uuid.test(accountRoute[1]) && req.method==='GET';
       const progress=path.match(/^\/v1\/hubs\/([0-9a-f-]{36})\/lessons\/([0-9a-f-]{36})\/progress$/);
       const progressRoute=progress && uuid.test(progress[1]) && uuid.test(progress[2]) && req.method==='PUT';
+      const libraryAdmin=path.match(/^\/v1\/hubs\/([0-9a-f-]{36})\/catalogue\/library(?:\/([0-9a-f-]{36})(?:\/(publish|archive))?)?$/);
+      const libraryAdminRoute=libraryForPrincipal && libraryAdmin && uuid.test(libraryAdmin[1]) && (!libraryAdmin[2]||uuid.test(libraryAdmin[2])) &&
+        (!libraryAdmin[2]?['GET','POST'].includes(req.method):!libraryAdmin[3]?['GET','PATCH'].includes(req.method):req.method==='POST');
       const learning=path.match(/^\/v1\/hubs\/([0-9a-f-]{36})\/learning$/);
       const learningRoute=learningForPrincipal && learning && uuid.test(learning[1]) && req.method==='GET';
       const catalogue=path.match(/^\/v1\/hubs\/([0-9a-f-]{36})\/catalogue\/products(?:\/([0-9a-f-]{36})(?:\/(modules|lessons|plans|publish|opens)(?:\/([0-9a-f-]{36})(?:\/(content))?)?)?)?$/);
@@ -181,12 +214,12 @@ export function createApi({authenticate,accessForPrincipal,consentForPrincipal,n
       const createHub=hubForPrincipal && path==='/v1/hubs' && req.method==='POST';
       const hubRoute=hubForPrincipal && hubAction && uuid.test(hubAction[1]) &&
         req.method===({join:'POST',membership:'GET',branding:'PUT'})[hubAction[2]];
-      if(!progressRoute && !learningRoute && !catalogueRoute && !domainRoute &&!orgDomainRoute &&!logoRoute && !noticeRoute && !readAccount && !linkRoute && !orgRoute &&!sessionRoute && !createHub && !hubRoute && !consentRoute && (req.method!=='GET'||!match||!uuid.test(match[1])||!uuid.test(match[2])))return send(404,{error:'not_found'});
+      if(!libraryAdminRoute && !progressRoute && !learningRoute && !catalogueRoute && !domainRoute &&!orgDomainRoute &&!logoRoute && !noticeRoute && !readAccount && !linkRoute && !orgRoute &&!sessionRoute && !createHub && !hubRoute && !consentRoute && (req.method!=='GET'||!match||!uuid.test(match[1])||!uuid.test(match[2])))return send(404,{error:'not_found'});
       const bearer=req.headers.authorization?.match(/^Bearer ([^\s]+)$/)?.[1];
       if(req.headers.authorization && !bearer)return send(401,{error:'unauthenticated'});
       const principal=bearer?await authenticate(bearer):await browserSessions?.principal(req);
       if(!principal||!uuid.test(principal.userId??''))return send(401,{error:'unauthenticated'});
-      const targetHub=progressRoute?progress[1]:learningRoute?learning[1]:catalogueRoute?catalogue[1]:domainRoute?domain[1]:orgDomainRoute?orgDomain[1]:logoRoute?logo[1]:noticeRoute?notice[1]:readAccount?accountRoute[1]:linkRoute?links[1]:orgRoute?org[1]:sessionRoute?sessionAction[1]:hubRoute?hubAction[1]:consentRoute?consent[1]:match?.[1];
+      const targetHub=libraryAdminRoute?libraryAdmin[1]:progressRoute?progress[1]:learningRoute?learning[1]:catalogueRoute?catalogue[1]:domainRoute?domain[1]:orgDomainRoute?orgDomain[1]:logoRoute?logo[1]:noticeRoute?notice[1]:readAccount?accountRoute[1]:linkRoute?links[1]:orgRoute?org[1]:sessionRoute?sessionAction[1]:hubRoute?hubAction[1]:consentRoute?consent[1]:match?.[1];
       if(principal.sessionHash && targetHub && principal.hubId!==targetHub)return send(404,{error:'not_found'});
       if(principal.sessionHash && !['GET','HEAD'].includes(req.method))browserSessions.checkMutation(req,principal);
       if(domainRoute) {
@@ -198,6 +231,12 @@ export function createApi({authenticate,accessForPrincipal,consentForPrincipal,n
       if(progressRoute)return send(200,await accessForPrincipal(principal).recordProgress({hubId:progress[1],userId:principal.userId,
         lessonId:progress[2],update:await readObject(req),idempotencyKey:req.headers['idempotency-key']}));
       if(learningRoute)return send(200,await learningForPrincipal(principal).learning(learning[1]));
+      if(libraryAdminRoute) {
+        const library=libraryForPrincipal(principal),[,hubId,itemId,action]=libraryAdmin;
+        if(!itemId)return req.method==='GET'?send(200,{items:await library.list(hubId)}):send(201,await library.create(hubId,await readObject(req,262144)));
+        if(action)return send(200,await library.setStatus(hubId,itemId,action==='publish'?'published':'archived'));
+        return send(200,req.method==='GET'?await library.get(hubId,itemId):await library.update(hubId,itemId,await readObject(req,262144)));
+      }
       if(catalogueRoute) {
         const products=catalogueForPrincipal(principal),[,hubId,productId,part,planId,content]=catalogue;
         if(!productId)return req.method==='GET'?send(200,{products:await products.list(hubId)}):send(201,await products.create(hubId,await readObject(req)));

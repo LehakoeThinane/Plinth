@@ -19,6 +19,27 @@ export class PostgresAccessRepository {
           const map=r=>({id:r.id,hubId:r.hub_id,companyOrg:r.company_org,status:r.status,access:r.access_mode,visibility:r.visibility,previewAvailable:r.preview_available??false});
           return [map(lesson),map(product)];
         },
+        // A library item maps onto the lesson chain shape: the item's own
+        // requirement, then the linked product's for buyer-only items.
+        getLibraryChain:async id=>{
+          const item=(await tx.query('SELECT id,hub_id,status,visibility,required_product_id FROM library.items WHERE hub_id=$1 AND id=$2',[hubId,id])).rows[0];
+          if(!item)return [];
+          const access=({public:'open',members:'members',tier:'entitled',entitled:'open'})[item.visibility]??'invalid';
+          const chain=[{id:item.id,hubId:item.hub_id,companyOrg:null,status:item.status,access,visibility:'public',previewAvailable:true}];
+          if(item.required_product_id) {
+            const product=(await tx.query(`SELECT p.*,b.company_org FROM catalogue.products p JOIN tenancy.boundaries b ON b.hub_id=p.hub_id AND b.id=p.boundary_id
+              WHERE p.hub_id=$1 AND p.id=$2`,[hubId,item.required_product_id])).rows[0];
+            if(!product)return [];
+            chain.push({id:product.id,hubId:product.hub_id,companyOrg:product.company_org,status:product.status,access:product.access_mode,visibility:product.visibility,previewAvailable:true});
+          }
+          return chain;
+        },
+        getLibraryItem:async id=>{
+          const row=(await tx.query(`SELECT i.id,i.type,i.title,i.summary,i.body,i.visibility,i.topics,i.published_at,i.required_product_id,p.title AS product_title
+            FROM library.items i LEFT JOIN catalogue.products p ON p.hub_id=i.hub_id AND p.id=i.required_product_id WHERE i.hub_id=$1 AND i.id=$2`,[hubId,id])).rows[0];
+          return row?{id:row.id,type:row.type,title:row.title,summary:row.summary,body:row.body,visibility:row.visibility,topics:row.topics,
+            publishedAt:row.published_at,requiredProductId:row.required_product_id,productTitle:row.product_title}:null;
+        },
         // Read under the same RLS context (organisations, staff) as the decision.
         getLessonContent:async id=>{
           const row=(await tx.query(`SELECT l.id,l.title,l.summary,l.product_id,p.title AS product_title,c.body

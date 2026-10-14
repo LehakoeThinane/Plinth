@@ -57,6 +57,7 @@ jobs:
       - run: psql -h localhost -U plinth_admin -d plinth -v ON_ERROR_STOP=1 -f db/migrations/017-lesson-content.sql
       - run: psql -h localhost -U plinth_admin -d plinth -v ON_ERROR_STOP=1 -f db/migrations/018-progress.sql
       - run: psql -h localhost -U plinth_admin -d plinth -v ON_ERROR_STOP=1 -f db/migrations/019-access-log.sql
+      - run: psql -h localhost -U plinth_admin -d plinth -v ON_ERROR_STOP=1 -f db/migrations/020-library.sql
       - run: npm test
       - run: npm run test:tenant
       - run: npm run test:http

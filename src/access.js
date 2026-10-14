@@ -50,6 +50,28 @@ export class AccessService {
     });
   }
 
+  /** Opens a library item through the same decision path as lessons. Items are
+   * always previewable: a locked result names how to unlock it, never the body.
+   */
+  async openLibraryItem({ hubId, userId = null, itemId }) {
+    return this.repository.withSnapshot(hubId, async (snapshot) => {
+      const chain = await snapshot.getLibraryChain(itemId);
+      if (!chain?.length || chain.some(row => row.hubId !== hubId)) return notFound();
+      const summary = userId ? await this.freshSummary(snapshot, hubId, userId) : null;
+      const decision = this.evaluate(chain, summary, 'content');
+      if (decision.decision === 'not_found') return decision;
+      const item = await snapshot.getLibraryItem(itemId);
+      if (!item) return notFound();
+      if (decision.decision === 'locked') {
+        const { body, ...preview } = item;
+        // A tier item is unlocked by a tier, not a purchase.
+        const reason = decision.reason === 'purchase' && item.visibility === 'tier' ? 'tier' : decision.reason;
+        return { decision: 'locked', reason, item: preview };
+      }
+      return { decision: 'allowed', item };
+    });
+  }
+
   /** Saves progress only for a lesson the learner can open now, decided in the
    * same transaction. A retried request with the same idempotency key returns
    * the stored result; the same key with a different payload is a conflict.

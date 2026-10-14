@@ -31,7 +31,7 @@ header{background:white;border-top:6px solid ${color};border-bottom:1px solid #d
 a{color:${color}}h2{margin-top:0}footer{color:#44556b;font-size:.9rem}
 </style>${session?'<script defer src="/assets/plinth-shell.js"></script>':''}</head>
 <body${session?` data-hub-id="${e(session.hubId)}" data-slug="${e(hub.slug)}" data-csrf="${e(session.csrfToken)}"`+Object.entries(data).map(([k,v])=>` data-${k}="${e(v)}"`).join(''):''}>
-<header><div class="wrap"><a href="/h/${e(hub.slug)}">${logo}</a><strong>${e(hub.display_name)}</strong>${session?`<a href="/h/${e(hub.slug)}/learning">My learning</a>`:signIn?`<a href="/h/${e(hub.slug)}/sign-in">Sign in</a><a href="/h/${e(hub.slug)}/sign-in?view=join">Join hub</a>`:''}</div></header>
+<header><div class="wrap"><a href="/h/${e(hub.slug)}">${logo}</a><strong>${e(hub.display_name)}</strong><a href="/h/${e(hub.slug)}/library">Library</a>${session?`<a href="/h/${e(hub.slug)}/learning">My learning</a>`:signIn?`<a href="/h/${e(hub.slug)}/sign-in">Sign in</a><a href="/h/${e(hub.slug)}/sign-in?view=join">Join hub</a>`:''}</div></header>
 <main class="wrap">${main}<p id="status" role="status" aria-live="polite"></p></main><footer class="wrap">Powered by Plinth</footer></body></html>`;
 }
 export function renderStorefront(hub,{signIn=false,products=null}={}) {
@@ -79,4 +79,24 @@ function lessonLayout(hub,{decision,reason,lesson}) {
   return {title:lesson.title+' · '+hub.display_name,main:`<section class="intro">${back}<h1>${e(lesson.title)}</h1>
 <p class="description">${e(lesson.summary)}</p></section>
 ${decision==='allowed'?`<article class="card lesson">${renderBody(lesson.body)||'<p>This lesson has no written content yet.</p>'}</article>`:locked}`};
+}
+const visibilityLabels={public:'Free to read',members:'For hub members',tier:'For membership tiers',entitled:'For buyers'};
+const itemLabel=i=>i.visibility==='entitled'&&i.product_title?'For buyers of '+i.product_title:visibilityLabels[i.visibility]??'';
+export function renderLibrary(hub,{items,next},{signIn=false,topic=null}={}) {
+  const base='/h/'+e(hub.slug)+'/library';
+  const list=items.map(i=>`<li><p class="eyebrow">${e(itemLabel(i))}</p><h3><a href="${base}/${e(i.id)}">${e(i.title)}</a></h3><p>${e(i.summary)}</p>
+    <p>${i.topics.map(t=>`<a href="${base}?topic=${e(t)}">#${e(t)}</a>`).join(' ')}</p></li>`).join('');
+  const more=next?`<p><a href="${base}?${topic?'topic='+e(topic)+'&amp;':''}before=${e(encodeURIComponent(next))}">Older items</a></p>`:'';
+  return layout(hub,{signIn,title:'Library · '+hub.display_name,main:`<section class="intro"><p class="eyebrow">Library</p><h1>${topic?'#'+e(topic):'Articles and resources'}</h1>
+${topic?`<p><a href="${base}">All topics</a></p>`:''}</section>
+<section class="card">${list?`<ul class="shelf">${list}</ul>${more}`:'<p>Nothing has been published here yet.</p>'}</section>`});
+}
+const libraryUnlock={join:'Join this hub to read this item.',tier:'This item is included in a membership tier.',purchase:'This item is included with a product purchase.'};
+export function renderLibraryItem(hub,{decision,reason,item},{signIn=false}={}) {
+  const action=reason==='join'?`<a href="/h/${e(hub.slug)}/sign-in?view=join">Join the hub</a>`:
+    reason==='purchase'&&item.requiredProductId?`<a href="/h/${e(hub.slug)}/products/${e(item.requiredProductId)}">See ${e(item.productTitle)}</a>`:'';
+  const locked=`<section class="card"><h2>Locked</h2><p>${e(libraryUnlock[reason]??'This item is not available to you yet.')}</p>${action?`<p>${action}</p>`:''}</section>`;
+  return layout(hub,{signIn,title:item.title+' · '+hub.display_name,main:`<section class="intro"><p><a href="/h/${e(hub.slug)}/library">Library</a></p>
+<p class="eyebrow">${e(itemLabel({...item,product_title:item.productTitle}))}</p><h1>${e(item.title)}</h1><p class="description">${e(item.summary)}</p></section>
+${decision==='allowed'?`<article class="card">${renderBody(item.body)||'<p>This item has no text yet.</p>'}</article>`:locked}`});
 }
